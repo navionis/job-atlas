@@ -1,17 +1,142 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';
-import {feeds,retryDelay} from '../lib/feeds';
-test('all 19 adapters normalize a documented response shape',()=>{
- Object.assign(process.env,{MUSE_API_KEY:'fixture',GREENHOUSE_BOARDS:'fixture',LEVER_BOARDS:'fixture',ASHBY_BOARDS:'fixture',SMARTRECRUITERS_BOARDS:'fixture',ADZUNA_APP_ID:'fixture',ADZUNA_APP_KEY:'fixture',JOOBLE_API_KEY:'fixture',JOOBLE_ENABLED:'true',USAJOBS_API_KEY:'fixture',USAJOBS_EMAIL:'fixture@example.org',RELIEFWEB_APPNAME:'fixture',REED_API_KEY:'fixture'});
- const r={id:'1',title:'Engineer',company_name:'Company',url:'https://example.org/job/1',location:'Ethiopia',description:'<p>Role</p>'};
- const web3row=`<tr data-jobid=1 onclick="tableTurboRowClick(event, '/engineer-company/1')"><td><h2>Engineer</h2><h3>Company</h3><span class=job-location-mobile><a>Ethiopia</a></span><time datetime="2026-10-01 10:00:00+00:00"></time></td></tr>`;
- const rare=String.raw`self.__next_f.push([1,"x:[{\"slug\":\"j1\",\"title\":\"Engineer\",\"company\":\"Company\",\"location\":\"Ethiopia\",\"locationType\":\"Remote\",\"formattedDate\":\"August 26, 2026\",\"category\":\"DeFi\",\"description\":\"Role\"}]"])`;
- const next=`<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({props:{pageProps:{jobs:[{_id:'j1',jobTitle:'Engineer',companyName:'Company',companyHq:'Ethiopia',postedDate:'2026-10-01T00:00:00Z'}]}}})}</script>`;
- const sail=`<article class="job-card x"><a class="job-card-company y">Company</a><a class="job-card-title z" href="/jobs/j1">Engineer - Company</a><a class="job-card-loc z"><span>Ethiopia</span></a><time dateTime="2026-10-16">Today</time></article>`;
- const fixture:Record<string,unknown>={
- remotive:{jobs:[{...r,candidate_required_location:'Ethiopia'}]},remoteok:[{legal:'meta'},{...r,position:'Engineer',company:'Company'}],arbeitnow:{data:[{...r,slug:'1',created_at:1700000000}]},muse:{results:[{id:1,name:'Engineer',company:{name:'Company'},locations:[{name:'Ethiopia'}],refs:{landing_page:r.url}}]},greenhouse:{jobs:[{...r,absolute_url:r.url,location:{name:'Ethiopia'}}]},lever:[{id:'1',text:'Engineer',hostedUrl:r.url,categories:{location:'Ethiopia'}}],ashby:{jobs:[{...r,jobUrl:r.url,isListed:true},{...r,id:'hidden',jobUrl:r.url,isListed:false}]},smartrecruiters:{content:[{id:'1',name:'Engineer',location:{city:'Addis Ababa',country:'et'}}]},adzuna:{results:[{...r,company:{display_name:'Company'},redirect_url:r.url,location:{area:['Ethiopia','Addis Ababa']}}]},jooble:{jobs:[{...r,link:r.url}]},usajobs:{SearchResult:{SearchResultItems:[{MatchedObjectId:'1',MatchedObjectDescriptor:{PositionTitle:'Engineer',OrganizationName:'Company',PositionURI:r.url,PositionLocation:[{LocationName:'Addis Ababa',CountryCode:'ET'}]}}]}},reliefweb:{data:[{id:1,fields:{title:'Engineer',url:r.url,country:[{name:'Ethiopia'}],source:[{name:'Company'}]}}]},reed:{results:[{jobId:1,jobTitle:'Engineer',employerName:'Company',jobUrl:r.url,locationName:'Ethiopia'}]},
- cryptocurrencyjobs:{hits:[{objectID:'1',title:'Engineer',company:{name:'Company'},permalink:'/engineering/job-1/',locationFilter:['Ethiopia'],datePublished:'2026-10-01T00:00:00'},{objectID:'ad',title:'Ad',is_ad:true,permalink:'/x/'}]},getro:{results:{jobs:[{id:1,title:'Engineer',url:r.url,organization:{name:'Company'},searchable_locations:['Ethiopia'],created_at:1700000000}]}},web3career:`<html>${web3row}</html>`,raretalent:rare,findweb3:next,sailonchain:sail};
- const adapters=feeds();assert.equal(adapters.length,19);
- const eligibilitySupplied=['remotive','cryptocurrencyjobs','web3career','raretalent','sailonchain'];
- for(const f of adapters){const normalized=f.map(fixture[f.provider]);assert.equal(normalized.length,1,f.provider);assert.equal(normalized[0].title,'Engineer',f.provider);assert(normalized[0].scope.countries.includes('ET'),f.provider);assert(normalized[0].url.startsWith('https://'),f.provider);if(!eligibilitySupplied.includes(f.provider))assert(normalized[0].eligibility.unknown,f.provider)}
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { feeds, retryDelay } from "../lib/feeds";
+test("all 19 adapters normalize a documented response shape", () => {
+  Object.assign(process.env, {
+    MUSE_API_KEY: "fixture",
+    GREENHOUSE_BOARDS: "fixture",
+    LEVER_BOARDS: "fixture",
+    ASHBY_BOARDS: "fixture",
+    SMARTRECRUITERS_BOARDS: "fixture",
+    ADZUNA_APP_ID: "fixture",
+    ADZUNA_APP_KEY: "fixture",
+    JOOBLE_API_KEY: "fixture",
+    JOOBLE_ENABLED: "true",
+    USAJOBS_API_KEY: "fixture",
+    USAJOBS_EMAIL: "fixture@example.org",
+    RELIEFWEB_APPNAME: "fixture",
+    REED_API_KEY: "fixture",
+  });
+  const r = {
+    id: "1",
+    title: "Engineer",
+    company_name: "Company",
+    url: "https://example.org/job/1",
+    location: "Ethiopia",
+    description: "<p>Role</p>",
+  };
+  const web3row = `<tr data-jobid=1 onclick="tableTurboRowClick(event, '/engineer-company/1')"><td><h2>Engineer</h2><h3>Company</h3><span class=job-location-mobile><a>Ethiopia</a></span><time datetime="2026-10-01 10:00:00+00:00"></time></td></tr>`;
+  const rare = String.raw`self.__next_f.push([1,"x:[{\"slug\":\"j1\",\"title\":\"Engineer\",\"company\":\"Company\",\"location\":\"Ethiopia\",\"locationType\":\"Remote\",\"formattedDate\":\"August 26, 2026\",\"category\":\"DeFi\",\"description\":\"Role\"}]"])`;
+  const next = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { jobs: [{ _id: "j1", jobTitle: "Engineer", companyName: "Company", companyHq: "Ethiopia", postedDate: "2026-10-01T00:00:00Z" }] } } })}</script>`;
+  const sail = `<article class="job-card x"><a class="job-card-company y">Company</a><a class="job-card-title z" href="/jobs/j1">Engineer - Company</a><a class="job-card-loc z"><span>Ethiopia</span></a><time dateTime="2026-10-16">Today</time></article>`;
+  const fixture: Record<string, unknown> = {
+    remotive: { jobs: [{ ...r, candidate_required_location: "Ethiopia" }] },
+    remoteok: [{ legal: "meta" }, { ...r, position: "Engineer", company: "Company" }],
+    arbeitnow: { data: [{ ...r, slug: "1", created_at: 1700000000 }] },
+    muse: {
+      results: [
+        {
+          id: 1,
+          name: "Engineer",
+          company: { name: "Company" },
+          locations: [{ name: "Ethiopia" }],
+          refs: { landing_page: r.url },
+        },
+      ],
+    },
+    greenhouse: { jobs: [{ ...r, absolute_url: r.url, location: { name: "Ethiopia" } }] },
+    lever: [{ id: "1", text: "Engineer", hostedUrl: r.url, categories: { location: "Ethiopia" } }],
+    ashby: {
+      jobs: [
+        { ...r, jobUrl: r.url, isListed: true },
+        { ...r, id: "hidden", jobUrl: r.url, isListed: false },
+      ],
+    },
+    smartrecruiters: { content: [{ id: "1", name: "Engineer", location: { city: "Addis Ababa", country: "et" } }] },
+    adzuna: {
+      results: [
+        {
+          ...r,
+          company: { display_name: "Company" },
+          redirect_url: r.url,
+          location: { area: ["Ethiopia", "Addis Ababa"] },
+        },
+      ],
+    },
+    jooble: { jobs: [{ ...r, link: r.url }] },
+    usajobs: {
+      SearchResult: {
+        SearchResultItems: [
+          {
+            MatchedObjectId: "1",
+            MatchedObjectDescriptor: {
+              PositionTitle: "Engineer",
+              OrganizationName: "Company",
+              PositionURI: r.url,
+              PositionLocation: [{ LocationName: "Addis Ababa", CountryCode: "ET" }],
+            },
+          },
+        ],
+      },
+    },
+    reliefweb: {
+      data: [
+        {
+          id: 1,
+          fields: { title: "Engineer", url: r.url, country: [{ name: "Ethiopia" }], source: [{ name: "Company" }] },
+        },
+      ],
+    },
+    reed: {
+      results: [{ jobId: 1, jobTitle: "Engineer", employerName: "Company", jobUrl: r.url, locationName: "Ethiopia" }],
+    },
+    cryptocurrencyjobs: {
+      hits: [
+        {
+          objectID: "1",
+          title: "Engineer",
+          company: { name: "Company" },
+          permalink: "/engineering/job-1/",
+          locationFilter: ["Ethiopia"],
+          datePublished: "2026-10-01T00:00:00",
+        },
+        { objectID: "ad", title: "Ad", is_ad: true, permalink: "/x/" },
+      ],
+    },
+    getro: {
+      results: {
+        jobs: [
+          {
+            id: 1,
+            title: "Engineer",
+            url: r.url,
+            organization: { name: "Company" },
+            searchable_locations: ["Ethiopia"],
+            created_at: 1700000000,
+          },
+        ],
+      },
+    },
+    web3career: `<html>${web3row}</html>`,
+    raretalent: rare,
+    findweb3: next,
+    sailonchain: sail,
+  };
+  const adapters = feeds();
+  assert.equal(adapters.length, 19);
+  const eligibilitySupplied = ["remotive", "cryptocurrencyjobs", "web3career", "raretalent", "sailonchain"];
+  for (const f of adapters) {
+    const normalized = f.map(fixture[f.provider]);
+    assert.equal(normalized.length, 1, f.provider);
+    assert.equal(normalized[0].title, "Engineer", f.provider);
+    assert(normalized[0].scope.countries.includes("ET"), f.provider);
+    assert(normalized[0].url.startsWith("https://"), f.provider);
+    if (!eligibilitySupplied.includes(f.provider)) assert(normalized[0].eligibility.unknown, f.provider);
+  }
 });
-test('Retry-After supports seconds, HTTP date and invalid input',()=>{assert.equal(retryDelay('120'),120000);const now=Date.now();assert(retryDelay(new Date(now+180000).toUTCString(),now)>=179000);assert.equal(retryDelay(null),900000)});
+test("Retry-After supports seconds, HTTP date and invalid input", () => {
+  assert.equal(retryDelay("120"), 120000);
+  const now = Date.now();
+  assert(retryDelay(new Date(now + 180000).toUTCString(), now) >= 179000);
+  assert.equal(retryDelay(null), 900000);
+});
