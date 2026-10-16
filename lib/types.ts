@@ -37,6 +37,5 @@ export type Resume = {
   uploadedAt: number;
   text: string;
   keywords: string[];
-  enriched?: boolean;
 };
 export type Profile = { keywords: string[]; excluded: string[]; resumes: Resume[]; sourceRank: Record<string, number> };

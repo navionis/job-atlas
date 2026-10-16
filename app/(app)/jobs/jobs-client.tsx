@@ -26,6 +26,7 @@ export default function JobsClient({
     [query, setQuery] = useState(""),
     [source, setSource] = useState(""),
     [remote, setRemote] = useState(false),
+    [remoteTo, setRemoteTo] = useState(""),
     [sched, setSched] = useState(""),
     [statusFilter, setStatusFilter] = useState("listed"),
     [mode, setMode] = useState("location"),
@@ -36,7 +37,7 @@ export default function JobsClient({
     setMarking((m) => [...m, id]);
     void mark(id, st).finally(() => setMarking((m) => m.filter((x) => x !== id)));
   };
-  const filterKey = [country, group, query, source, remote, sched, statusFilter, mode, unknown].join("|");
+  const filterKey = [country, group, query, source, remote, remoteTo, sched, statusFilter, mode, unknown].join("|");
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
@@ -52,6 +53,7 @@ export default function JobsClient({
       if (f.sched) setSched(f.sched);
       if (f.statusFilter) setStatusFilter(f.statusFilter);
       if (f.remote) setRemote(true);
+      if (f.remoteTo) setRemoteTo(f.remoteTo);
       if (f.unknown) setUnknown(true);
       if (f.query) setQuery(f.query);
     } catch {}
@@ -60,11 +62,12 @@ export default function JobsClient({
     try {
       localStorage.setItem(
         "atlas-filters",
-        JSON.stringify({ country, group, mode, source, sched, statusFilter, remote, unknown, query }),
+        JSON.stringify({ country, group, mode, source, sched, statusFilter, remote, remoteTo, unknown, query }),
       );
     } catch {}
-  }, [country, group, mode, source, sched, statusFilter, remote, unknown, query]);
+  }, [country, group, mode, source, sched, statusFilter, remote, remoteTo, unknown, query]);
   const selected = country || group;
+  const homeName = countries.find((c) => c.code === remoteTo)?.name || "";
   const terms = useMemo(
     () => (query ? [query.toLowerCase()] : profileKw.map((k) => k.toLowerCase())),
     [query, profileKw],
@@ -74,6 +77,10 @@ export default function JobsClient({
       data.jobs
         .filter((j) => {
           if ((source && j.source !== source) || (remote && !j.remote)) return false;
+          if (remoteTo) {
+            if (!j.remote || !scopeMatches(j.eligibility, remoteTo)) return false;
+            if (j.scope.countries.includes(remoteTo) && !j.scope.excluded.includes(remoteTo)) return false;
+          }
           if (sched) {
             const t = `${j.title} ${j.tags.join(" ")} ${j.summary}`.toLowerCase();
             if (!new RegExp(sched + "[\\s-]?time").test(t)) return false;
@@ -91,7 +98,7 @@ export default function JobsClient({
           return scopeMatches(s, group) || (unknown && (s.unknown || s.uncertain));
         })
         .sort((a, b) => (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3) || b.posted.localeCompare(a.posted)),
-    [data, terms, country, group, source, remote, sched, statusFilter, mode, unknown, srcRank],
+    [data, terms, country, group, source, remote, remoteTo, sched, statusFilter, mode, unknown, srcRank],
   );
   const countryOptions = countries.filter((c) => !group || groups[group]?.includes(c.code));
   const name = countries.find((c) => c.code === country)?.name || group || "Everywhere";
@@ -101,6 +108,7 @@ export default function JobsClient({
     setQuery("");
     setSource("");
     setRemote(false);
+    setRemoteTo("");
     setSched("");
     setStatusFilter("listed");
     setUnknown(false);
@@ -205,6 +213,27 @@ export default function JobsClient({
           <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} />
           Remote only
         </label>
+        <label>
+          REMOTE TO
+          <Select
+            ariaLabel="Remote to country"
+            value={remoteTo}
+            onChange={setRemoteTo}
+            options={[
+              { value: "", label: "Anywhere" },
+              ...countries.map((c) => ({ value: c.code, label: `${c.name} · ${c.code}` })),
+            ]}
+          />
+        </label>
+        {remoteTo && (
+          <div className="note">
+            <b>Remote to {homeName}</b>
+            <p>
+              Showing remote listings whose candidate scope includes {homeName}, and hiding listings physically located
+              in {homeName}.
+            </p>
+          </div>
+        )}
         <label className="check">
           <input type="checkbox" checked={unknown} onChange={(e) => setUnknown(e.target.checked)} />
           Include unknown / needs review
@@ -235,7 +264,7 @@ export default function JobsClient({
         <div className="section-title">
           <div>
             <h2>
-              Opportunities {country ? "excluding" : "in"} {name}
+              {remoteTo ? `Remote jobs open to ${homeName}` : `Opportunities ${country ? "excluding" : "in"} ${name}`}
             </h2>
             <p>
               {loading ? "Checking available feeds…" : `${filtered.length} matching jobs in the loaded feed slices`}
@@ -268,7 +297,7 @@ export default function JobsClient({
         )}
         {loading ? (
           <div className="empty">
-            <div className="loading" />
+            <Spinner size={56} className="page-load" />
             <h3>Opening the atlas…</h3>
             <p>Fetching available sources. No sample jobs are mixed into results.</p>
           </div>

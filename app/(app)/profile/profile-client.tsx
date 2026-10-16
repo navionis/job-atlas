@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Upload, Trash2, FileText, Plus, X, User, ArrowUpDown, ListPlus } from "lucide-react";
 import { Spinner } from "../../../components/loader";
 import { Favicon } from "../../../components/favicon";
@@ -14,7 +14,6 @@ export type ResumeRow = {
   uploadedAt: number;
   chars: number;
   keywords: string[];
-  enriched?: boolean;
 };
 export type ProfileData = {
   keywords: string[];
@@ -28,22 +27,32 @@ function KwAdd({
   placeholder,
   disabled,
 }: {
-  onAdd: (k: string) => void;
+  onAdd: (ks: string[]) => void;
   placeholder: string;
   disabled?: boolean;
 }) {
   const [v, setV] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const go = () => {
-    const k = v.trim().toLowerCase();
-    if (k) onAdd(k);
+    if (disabled) return;
+    const ks = [
+      ...new Set(
+        v
+          .split(/[,;]+/)
+          .map((x) => x.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ];
+    if (ks.length) onAdd(ks);
     setV("");
+    inputRef.current?.focus();
   };
   return (
     <div className="kw-add">
       <input
+        ref={inputRef}
         placeholder={placeholder}
         value={v}
-        disabled={disabled}
         onChange={(e) => setV(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") go();
@@ -63,26 +72,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
     [error, setError] = useState(""),
     [kw, setKw] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const pendingAi = pf.resumes.some((r) => r.enriched === false);
-  useEffect(() => {
-    if (!pendingAi) return;
-    let n = 0;
-    const t = setInterval(async () => {
-      if (++n > 20) {
-        clearInterval(t);
-        return;
-      }
-      try {
-        const r = await fetch("/api/profile", { cache: "no-store" });
-        if (!r.ok) return;
-        const d = await r.json();
-        setPf((p) => ({ ...p, ...d }));
-        if (d.keywords || d.sourceRank)
-          updateProfileMeta({ keywords: d.keywords || [], sourceRank: d.sourceRank || {} });
-      } catch {}
-    }, 8000);
-    return () => clearInterval(t);
-  }, [pendingAi]);
+  const kwRef = useRef<HTMLInputElement>(null);
   const apply = (d: Partial<ProfileData>) => {
     setPf((p) => ({ ...p, ...d }));
     updateProfileMeta({ keywords: d.keywords ?? pf.keywords, sourceRank: d.sourceRank ?? pf.sourceRank });
@@ -133,10 +123,19 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
     setSaving("");
   };
   const addKw = () => {
-    const k = kw.trim().toLowerCase();
-    if (!k) return;
-    put({ keywords: [...pf.manual, k], excluded: pf.excluded.filter((x) => x !== k) }, "kw:manual");
+    if (saving) return;
+    const ks = [
+      ...new Set(
+        kw
+          .split(/[,;]+/)
+          .map((x) => x.trim().toLowerCase())
+          .filter((x) => x && !pf.manual.includes(x)),
+      ),
+    ];
+    if (!ks.length) return;
+    put({ keywords: [...pf.manual, ...ks], excluded: pf.excluded.filter((x) => !ks.includes(x)) }, "kw:manual");
     setKw("");
+    kwRef.current?.focus();
   };
   const fmt = (n: number) =>
     n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
@@ -209,13 +208,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                     {fmt(r.size)} · {r.chars.toLocaleString()} chars captured ·{" "}
                     {new Date(r.uploadedAt).toLocaleString()}
                   </small>
-                  {r.enriched === false ? (
-                    <small className="ai-run">
-                      <Spinner size={11} /> Extracting keywords with Devin AI…
-                    </small>
-                  ) : (
-                    <small>{r.keywords.length} keywords extracted</small>
-                  )}
+                  <small>{r.keywords.length} keywords extracted</small>
                 </div>
                 <button
                   className="resume-del"
@@ -276,8 +269,13 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
             </div>
             <KwAdd
               disabled={!!saving}
-              placeholder="Add keyword to this resume"
-              onAdd={(k) => put({ resumeKeywords: { [r.id]: [...r.keywords, k] } }, `kw:${r.id}`)}
+              placeholder="Add keywords to this resume"
+              onAdd={(ks) =>
+                put(
+                  { resumeKeywords: { [r.id]: [...r.keywords, ...ks.filter((k) => !r.keywords.includes(k))] } },
+                  `kw:${r.id}`,
+                )
+              }
             />
           </div>
         ))}
@@ -290,7 +288,6 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
             {pf.manual.map((k) => (
               <span className="kw-tag manual" key={k}>
                 {k}
-                <em>manual</em>
                 <button
                   disabled={!!saving}
                   onClick={() => {
@@ -307,9 +304,9 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
           </div>
           <div className="kw-input">
             <input
-              placeholder="Add a keyword (e.g. typescript)"
+              ref={kwRef}
+              placeholder="Add keywords — e.g. typescript, node.js"
               value={kw}
-              disabled={!!saving}
               onChange={(e) => setKw(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") addKw();

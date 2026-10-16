@@ -601,10 +601,11 @@ function load(): StoreState {
       else nested[k] = v;
     }
     d.statuses = nested;
+    d.disabled = Array.isArray(d.disabled) ? d.disabled.filter((x: any) => typeof x === "string") : [];
     return d;
   } catch (e: any) {
     if (e.code !== "ENOENT") throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");
-    return { entries: {}, attempts: {}, lifetime: {}, statuses: {} };
+    return { entries: {}, attempts: {}, lifetime: {}, statuses: {}, disabled: [] };
   }
 }
 const globalState = globalThis as typeof globalThis & {
@@ -620,9 +621,6 @@ shared.hydrated ??= (async () => {
     } else shared.pg = false;
   } else shared.pg = false;
 })();
-export function storageBackend() {
-  return shared.pg ? "postgresql" : "file";
-}
 function statusesFor(email: string) {
   const all = shared.state.statuses;
   return { ...(all["*"] || {}), ...(all[email] || {}) };
@@ -637,6 +635,17 @@ export async function setJobStatus(email: string, id: string, status: JobStatus)
   }
   if (status === "listed") delete mine[id];
   else mine[id] = { status, at: Date.now() };
+  await save();
+}
+export async function setSourceDisabled(id: string, disabled: boolean) {
+  await shared.hydrated;
+  const known = feeds().some((f) => f.id === id);
+  if (!known) throw new Error("Unknown source");
+  const list = (shared.state.disabled ??= []);
+  const i = list.indexOf(id);
+  if (disabled && i < 0) list.push(id);
+  if (!disabled && i >= 0) list.splice(i, 1);
+  baseCache = null;
   await save();
 }
 async function save() {
@@ -738,13 +747,34 @@ async function refresh(f: Feed) {
   }
   await save();
 }
+let baseCache: { snap: Snapshot; feedsKey: string } | null = null;
 async function collect(): Promise<Snapshot> {
   await shared.hydrated;
   const configured = feeds();
+  const disabled = new Set(shared.state.disabled || []);
+  const enabled = configured.filter((f) => !disabled.has(f.id));
+  const feedsKey = configured.map((f) => f.id).join(",") + "|" + [...disabled].sort().join(",");
+  // Reuse the assembled snapshot when no feed is due — refresh() is a no-op
+  // until its TTL elapses, so jobs/sources cannot change between those points.
+  const due = enabled.some((f) => {
+    const e = shared.state.entries[f.id];
+    return !e || e.next <= Date.now();
+  });
+  if (!due && baseCache && baseCache.feedsKey === feedsKey) return baseCache.snap;
   // Three concurrent upstream requests; no per-viewer polling amplification.
-  for (let i = 0; i < configured.length; i += 3) await Promise.all(configured.slice(i, i + 3).map(refresh));
+  for (let i = 0; i < enabled.length; i += 3) await Promise.all(enabled.slice(i, i + 3).map(refresh));
   const sources: SourceStatus[] = configured.map((f) => {
     const e = shared.state.entries[f.id];
+    if (disabled.has(f.id))
+      return {
+        id: f.id,
+        name: catalog.find((c) => c.id === f.provider)!.name + (f.id.includes(":") ? " · " + f.id.split(":")[1] : ""),
+        status: "disabled",
+        count: e?.jobs.length || 0,
+        fetchedAt: e?.fetched || 0,
+        nextFetch: 0,
+        detail: "Disabled — not fetching; cached listings hidden",
+      };
     return {
       id: f.id,
       name: catalog.find((c) => c.id === f.provider)!.name + (f.id.includes(":") ? " · " + f.id.split(":")[1] : ""),
@@ -766,7 +796,7 @@ async function collect(): Promise<Snapshot> {
       detail: "Add credentials or board slugs in .env.local",
     });
   const seen = new Set<string>();
-  const jobs = configured
+  const jobs = enabled
     .flatMap((f) => shared.state.entries[f.id]?.jobs || [])
     .filter((j) => {
       const k = j.url.split("?")[0];
@@ -775,7 +805,9 @@ async function collect(): Promise<Snapshot> {
       return true;
     })
     .sort((a, b) => b.posted.localeCompare(a.posted));
-  return { jobs, sources, statuses: {}, updatedAt: Math.max(0, ...sources.map((s) => s.fetchedAt)) };
+  const snap = { jobs, sources, statuses: {}, updatedAt: Math.max(0, ...sources.map((s) => s.fetchedAt)) };
+  baseCache = { snap, feedsKey };
+  return snap;
 }
 export async function snapshot(email = ""): Promise<Snapshot> {
   if (!shared.pending)

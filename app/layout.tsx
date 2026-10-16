@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import NextTopLoader from "nextjs-toploader";
 import "./globals.css";
 export const metadata: Metadata = {
@@ -14,7 +15,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
-        <script
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html:
               "try{if(localStorage.getItem('atlas-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}",

@@ -1,13 +1,25 @@
 "use client";
-import { ArrowUpRight } from "lucide-react";
+import { useState } from "react";
+import { ArrowUpRight, Pause, Play } from "lucide-react";
 import { FadeIn } from "../../../components/motion";
 import { catalog } from "../../../lib/catalog";
-import { useLiveData } from "../../../lib/live";
+import { refresh, useLiveData } from "../../../lib/live";
 import { Favicon } from "../../../components/favicon";
 import type { Snapshot } from "../../../lib/types";
 
 export default function SourcesClient({ initial }: { initial: Snapshot }) {
   const { data } = useLiveData(initial);
+  const [busy, setBusy] = useState<string[]>([]);
+  const toggle = (id: string, disabled: boolean) => {
+    setBusy((b) => [...b, id]);
+    void fetch("/api/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, disabled }),
+    })
+      .then(() => refresh())
+      .finally(() => setBusy((b) => b.filter((x) => x !== id)));
+  };
   return (
     <FadeIn className="sources">
       <div className="section-title">
@@ -48,8 +60,20 @@ export default function SourcesClient({ initial }: { initial: Snapshot }) {
                     ? data.sources
                         .filter((s) => s.id.split(":")[0] === c.id)
                         .map((s) => (
-                          <div key={s.id}>
+                          <div key={s.id} className="src-status">
                             <span className="pill">{s.status}</span>
+                            {s.status !== "not configured" && (
+                              <button
+                                className={"src-toggle" + (s.status === "disabled" ? " off" : "")}
+                                disabled={busy.includes(s.id)}
+                                onClick={() => toggle(s.id, s.status !== "disabled")}
+                                aria-label={s.status === "disabled" ? `Enable ${s.name}` : `Disable ${s.name}`}
+                                title={s.status === "disabled" ? "Enable fetching" : "Disable fetching"}
+                              >
+                                {s.status === "disabled" ? <Play size={11} /> : <Pause size={11} />}
+                                {s.status === "disabled" ? "Enable" : "Disable"}
+                              </button>
+                            )}
                             <small>
                               {s.name} · {s.count} jobs
                             </small>

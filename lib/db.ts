@@ -6,6 +6,7 @@ export type StoreState = {
   attempts: Record<string, number[]>;
   lifetime: Record<string, number>;
   statuses: Record<string, Record<string, StatusEntry>>;
+  disabled: string[];
 };
 let pool: Pool | undefined, schema: Promise<Pool> | undefined;
 export function pgEnabled() {
@@ -64,6 +65,7 @@ async function client(): Promise<Pool> {
         `insert into job_status_user(email,job_id,status,updated) select '*',job_id,status,updated from job_status on conflict do nothing`,
       );
       await pool.query(`create table if not exists profiles(email text primary key,data jsonb not null default '{}')`);
+      await pool.query(`create table if not exists feed_disabled(feed_id text primary key)`);
       return pool;
     })().catch((e) => {
       schema = undefined;
@@ -74,12 +76,19 @@ async function client(): Promise<Pool> {
 export async function loadState(): Promise<StoreState | null> {
   try {
     const p = await client();
-    const [e, a, s] = await Promise.all([
+    const [e, a, s, d] = await Promise.all([
       p.query(`select feed_id,jobs,next_fetch,fetched_at,status,detail from feed_state`),
       p.query(`select scope,attempts,lifetime from feed_attempts`),
       p.query(`select email,job_id,status,updated from job_status_user`),
+      p.query(`select feed_id from feed_disabled`),
     ]);
-    const state: StoreState = { entries: {}, attempts: {}, lifetime: {}, statuses: {} };
+    const state: StoreState = {
+      entries: {},
+      attempts: {},
+      lifetime: {},
+      statuses: {},
+      disabled: d.rows.map((r) => r.feed_id),
+    };
     for (const r of e.rows)
       state.entries[r.feed_id] = {
         jobs: r.jobs,
@@ -137,6 +146,13 @@ export async function saveState(state: StoreState) {
       3,
       (ph) =>
         `insert into feed_attempts(scope,attempts,lifetime) values ${ph} on conflict(scope) do update set attempts=excluded.attempts,lifetime=excluded.lifetime`,
+    );
+    await p.query(`delete from feed_disabled where not (feed_id = any($1::text[]))`, [state.disabled]);
+    await insertRows(
+      p,
+      state.disabled.map((id) => [id]),
+      1,
+      (ph) => `insert into feed_disabled(feed_id) values ${ph} on conflict do nothing`,
     );
     for (const [email, m] of Object.entries(state.statuses)) {
       await p.query(`delete from job_status_user where email=$1 and not (job_id = any($2::text[]))`, [

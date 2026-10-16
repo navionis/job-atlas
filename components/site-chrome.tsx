@@ -2,13 +2,16 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 import { Globe, Sun, Moon, ArrowUp } from "lucide-react";
 import { useSnapshot } from "../lib/live";
+import { EASE } from "./motion";
 import type { Session } from "../lib/auth";
 
 const LINKS: [string, string][] = [
   ["/", "Dashboard"],
   ["/jobs", "Discover jobs"],
+  ["/matches", "Matches"],
   ["/sources", "Sources & limits"],
   ["/profile", "Profile"],
 ];
@@ -69,11 +72,17 @@ export function SiteHeader({ me }: { me: Session }) {
         </span>
       </Link>
       <nav>
-        {LINKS.map(([href, label]) => (
-          <Link key={href} href={href} className={pathname === href ? "active" : ""}>
-            {label}
-          </Link>
-        ))}
+        {LINKS.map(([href, label]) => {
+          const active = pathname === href;
+          return (
+            <Link key={href} href={href} className={active ? "active" : ""}>
+              {label}
+              {active && (
+                <motion.span layoutId="nav-ink" className="nav-ink" transition={{ duration: 0.32, ease: EASE }} />
+              )}
+            </Link>
+          );
+        })}
       </nav>
       <span className="live">
         <i />
@@ -115,15 +124,26 @@ export function SiteHeader({ me }: { me: Session }) {
 export function SiteFooter() {
   return (
     <footer>
-      <span>
-        job atlas. <small>Find work. Know the boundaries.</small>
-      </span>
-      <div className="foot-links">
-        <Link href="/jobs">Discover jobs</Link>
-        <Link href="/">Dashboard</Link>
-        <Link href="/sources">Sources & limits</Link>
+      <div className="foot-inner">
+        <div className="foot-brand">
+          <Link href="/" className="foot-logo">
+            <span className="brand-mark">◇</span>
+            job atlas.
+          </Link>
+          <small>Find work. Know the boundaries.</small>
+        </div>
+        <div className="foot-links">
+          <Link href="/">Dashboard</Link>
+          <Link href="/jobs">Discover jobs</Link>
+          <Link href="/matches">Matches</Link>
+          <Link href="/sources">Sources & limits</Link>
+          <Link href="/profile">Profile</Link>
+        </div>
+        <div className="foot-note">
+          <span>Source-linked · No fabricated listings</span>
+          <span>REST + SSE live updates</span>
+        </div>
       </div>
-      <span>Source-linked · No fabricated listings · REST + SSE</span>
     </footer>
   );
 }

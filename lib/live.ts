@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { JobStatus, Snapshot } from "./types";
 
 type Snap = { data: Snapshot; loading: boolean; error: string; connection: string; touched: boolean };
-type User = { email: string; name: string; picture: string } | null;
 type ProfileMeta = { keywords: string[]; sourceRank: Record<string, number> };
 
 let snap: Snap = {
@@ -19,17 +18,20 @@ const emit = (p: Partial<Snap>) => {
   if (p.data) snap.touched = true;
   snapSubs.forEach((f) => f(snap));
 };
+const load = () =>
+  fetch("/api/jobs")
+    .then((r) => {
+      if (!r.ok) throw Error();
+      return r.json();
+    })
+    .then((d) => emit({ data: d, loading: false, error: "" }))
+    .catch(() => emit({ error: "Could not load feeds. Check the server connection and retry.", loading: false }));
+export function refresh() {
+  return load();
+}
 function startSnapshot() {
   if (snapStarted) return;
   snapStarted = true;
-  const load = () =>
-    fetch("/api/jobs")
-      .then((r) => {
-        if (!r.ok) throw Error();
-        return r.json();
-      })
-      .then((d) => emit({ data: d, loading: false, error: "" }))
-      .catch(() => emit({ error: "Could not load feeds. Check the server connection and retry.", loading: false }));
   void load();
   const events = new EventSource("/api/events");
   events.onopen = () => emit({ connection: "Auto-updates connected" });
@@ -80,35 +82,11 @@ export function mark(id: string, status: JobStatus): Promise<void> {
     .catch(() => {});
 }
 
-let user: User = null;
-let userLoaded = false;
-const userSubs = new Set<(u: User) => void>();
-export function useUser(): User {
-  const [u, setU] = useState(user);
-  useEffect(() => {
-    userSubs.add(setU);
-    if (!userLoaded) {
-      userLoaded = true;
-      fetch("/api/auth/me")
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          user = d;
-          userSubs.forEach((f) => f(user));
-        })
-        .catch(() => {});
-    }
-    return () => {
-      userSubs.delete(setU);
-    };
-  }, []);
-  return u;
-}
-
 let profileMeta: ProfileMeta = { keywords: [], sourceRank: {} };
 let profileLoaded = false;
 let metaTouched = false;
 const profileSubs = new Set<(p: ProfileMeta) => void>();
-export function useProfileMeta(): ProfileMeta {
+function useProfileMeta(): ProfileMeta {
   const [p, setP] = useState(profileMeta);
   useEffect(() => {
     profileSubs.add(setP);

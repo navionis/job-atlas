@@ -37,6 +37,7 @@ test("postgres layer round-trips feed state and upserts jobs", async () => {
     attempts: { "remotive:abc": [1, 2, 3] },
     lifetime: { "remotive:abc": 4 },
     statuses: { "user@example.com": { "remotive:j1": { status: "applied", at: 456 } } },
+    disabled: ["web3career"],
   };
   await saveState(state);
   const loaded = await loadState();
@@ -47,6 +48,7 @@ test("postgres layer round-trips feed state and upserts jobs", async () => {
   assert.equal(loaded!.lifetime["remotive:abc"], 4);
   assert.equal(loaded!.statuses["user@example.com"]["remotive:j1"].status, "applied");
   assert.equal(loaded!.statuses["user@example.com"]["remotive:j1"].at, 456);
+  assert.deepEqual(loaded!.disabled, ["web3career"]);
   state.entries.remotive.status = "stale";
   await saveState(state);
   assert.equal((await loadState())!.entries.remotive.status, "stale");
