@@ -87,12 +87,12 @@ export function feeds():Feed[]{
 }
 const dir=process.env.DATA_DIR||join(process.cwd(),".data");
 const file=join(dir,"feeds.json");
-function load():StoreState{try{const d=JSON.parse(readFileSync(file,"utf8"));if(!d.entries||!d.attempts||!d.lifetime)throw Error();d.statuses??={};return d}catch(e:any){if(e.code!=="ENOENT")throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");return {entries:{},attempts:{},lifetime:{},statuses:{}}}}
+function load():StoreState{try{const d=JSON.parse(readFileSync(file,"utf8"));if(!d.entries||!d.attempts||!d.lifetime)throw Error();d.statuses=Object.fromEntries(Object.entries(d.statuses||{}).map(([k,v]:[string,any])=>[k,typeof v==="string"?{status:v,at:0}:v]));return d}catch(e:any){if(e.code!=="ENOENT")throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");return {entries:{},attempts:{},lifetime:{},statuses:{}}}}
 const globalState=globalThis as typeof globalThis & {atlas?:{state:StoreState;pending?:Promise<Snapshot>;hydrated?:Promise<void>;pg?:boolean}};
 const shared=globalState.atlas??=( {state:load()} );
 shared.hydrated??=(async()=>{if(pgEnabled()){const s=await loadState();if(s){shared.state=s;shared.pg=true}else shared.pg=false}else shared.pg=false})();
 export function storageBackend(){return shared.pg?"postgresql":"file"}
-export async function setJobStatus(id:string,status:JobStatus){await shared.hydrated;if(status==="pending")delete shared.state.statuses[id];else shared.state.statuses[id]=status;await save()}
+export async function setJobStatus(id:string,status:JobStatus){await shared.hydrated;if(status==="listed")delete shared.state.statuses[id];else shared.state.statuses[id]={status,at:Date.now()};await save()}
 async function save(){if(shared.pg)await saveState(shared.state);else{mkdirSync(dir,{recursive:true});writeFileSync(file+".tmp",JSON.stringify(shared.state));renameSync(file+".tmp",file)}}
 export function retryDelay(value:string|null,now=Date.now()){if(!value)return 15*60000;const n=Number(value);return Number.isFinite(n)?Math.max(60000,n*1000):Math.max(60000,(Date.parse(value)||now+15*60000)-now)}
 function reserve(f:Feed){

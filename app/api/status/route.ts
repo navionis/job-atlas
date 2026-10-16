@@ -5,7 +5,7 @@ export const dynamic="force-dynamic";
 export async function POST(request:Request){
  try{
   const {id,status}=await request.json();
-  if(typeof id!=="string"||!id||!["pending","applied","ignored"].includes(status))return Response.json({error:"Invalid status update"},{status:400});
+  if(typeof id!=="string"||!id||!["listed","applied","cancelled","ignored"].includes(status))return Response.json({error:"Invalid status update"},{status:400});
   await setJobStatus(id,status as JobStatus);
   return Response.json({ok:true});
  }catch{return Response.json({error:"Could not save status"},{status:500})}
