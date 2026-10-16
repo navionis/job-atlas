@@ -2,7 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, MapPin, ArrowUpRight, Compass, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Search, MapPin, ArrowUpRight, Compass, ChevronLeft, ChevronRight } from "lucide-react";
+import { Spinner } from "../../../components/loader";
+import { Favicon } from "../../../components/favicon";
 import { EASE } from "../../../components/motion";
 import { countries, groups, scopeMatches } from "../../../lib/geo";
 import { catalog } from "../../../lib/catalog";
@@ -307,8 +309,9 @@ export default function JobsClient({
                     <div className="company-icon">{j.company.slice(0, 2).toUpperCase()}</div>
                     <div className="job-content">
                       <div className="job-top">
-                        <span>
-                          {j.company} · via {catalog.find((c) => c.id === j.source)?.name || j.source}
+                        <span className="job-via">
+                          {j.company} · via <Favicon source={j.source} />{" "}
+                          {catalog.find((c) => c.id === j.source)?.name || j.source}
                         </span>
                         <span className="job-st">
                           {st !== "listed" && (
@@ -355,7 +358,6 @@ export default function JobsClient({
                         </a>
                       </details>
                       <div className="job-actions">
-                        {marking.includes(j.id) && <Loader2 className="spin act-spin" size={13} />}
                         {st !== "applied" && (
                           <button
                             className="act-on"
@@ -380,6 +382,7 @@ export default function JobsClient({
                             Back to listed
                           </button>
                         )}
+                        {marking.includes(j.id) && <Spinner size={15} className="act-spin" />}
                       </div>
                     </div>
                   </motion.article>

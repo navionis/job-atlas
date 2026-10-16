@@ -3,6 +3,7 @@ import { ArrowUpRight } from "lucide-react";
 import { FadeIn } from "../../../components/motion";
 import { catalog } from "../../../lib/catalog";
 import { useLiveData } from "../../../lib/live";
+import { Favicon } from "../../../components/favicon";
 import type { Snapshot } from "../../../lib/types";
 
 export default function SourcesClient({ initial }: { initial: Snapshot }) {
@@ -32,8 +33,8 @@ export default function SourcesClient({ initial }: { initial: Snapshot }) {
             {catalog.map((c) => (
               <tr key={c.id}>
                 <td>
-                  <a href={c.url} target="_blank" rel="noreferrer">
-                    {c.name} <ArrowUpRight size={12} />
+                  <a href={c.url} target="_blank" rel="noreferrer" className="src-link">
+                    <Favicon source={c.id} size={15} /> {c.name} <ArrowUpRight size={12} />
                   </a>
                 </td>
                 <td>

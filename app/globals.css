@@ -59,6 +59,7 @@ html.dark {
 }
 body {
   margin: 0;
+  overflow-x: clip;
   background: var(--paper);
   color: var(--ink);
   font-family:
@@ -238,8 +239,8 @@ main {
 .hero:before {
   content: "";
   position: absolute;
-  inset: -40px -120px 0;
-  background: radial-gradient(ellipse 60% 70% at 70% 30%, var(--glow), transparent 70%);
+  inset: -40px 0 0;
+  background: radial-gradient(ellipse 55% 65% at 72% 30%, var(--glow), transparent 70%);
   pointer-events: none;
 }
 .hero-copy {
@@ -1226,29 +1227,82 @@ footer > span:last-child {
 }
 .mini {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  padding: 9px 0;
+  padding: 10px 12px;
+  margin: 0 -12px;
   border-bottom: 1px solid var(--line);
+  border-radius: 8px;
   font-size: 12px;
-  align-items: baseline;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 .mini:last-child {
   border-bottom: 0;
 }
-.mini a {
+.mini:hover {
+  background: var(--soft);
+  border-color: transparent;
+}
+.mini-fav {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.mini-text {
+  min-width: 0;
+  flex: 1;
+}
+.mini-text b {
+  display: block;
+  font-size: 12.5px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mini a:hover {
-  color: var(--accent);
-}
-.mini span {
+.mini-text small {
+  display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 10.5px;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.mini-meta {
+  text-align: right;
+  flex-shrink: 0;
+}
+.mini-meta .src-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.mini-meta small {
+  display: block;
+  color: var(--muted);
+  font-size: 9.5px;
+  margin-top: 1px;
+}
+.mini-arrow {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition:
+    transform 0.15s,
+    color 0.15s;
+}
+.mini:hover .mini-arrow {
+  color: var(--accent);
+  transform: translate(1px, -1px);
 }
 .to-top {
   position: fixed;
@@ -1794,10 +1848,13 @@ article {
 }
 .act-spin {
   align-self: center;
-  margin-right: 2px;
+  margin-left: auto;
 }
-.rank-spin {
-  color: var(--accent);
+.rank-spin,
+.rank-spin-slot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 .job-actions {
   align-items: center;
@@ -1848,8 +1905,10 @@ article {
   padding: 6px 10px;
   font-size: 12px;
 }
+.sel-btn:focus,
 .sel-btn:focus-visible {
   outline: none;
+  box-shadow: none;
   border-color: var(--accent);
 }
 .sel-btn:disabled {
@@ -1913,4 +1972,88 @@ article {
 .sel-opt.on {
   color: var(--accent);
   font-weight: 600;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 70%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.ai-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+}
+.atlas-spin {
+  color: var(--accent);
+  animation: spin 1.4s linear infinite;
+  flex-shrink: 0;
+}
+.atlas-spin .core {
+  transform-origin: center;
+  animation: core-pulse 1.4s ease-in-out infinite;
+}
+@keyframes core-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+.favicon {
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.favicon-fb {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.job-via {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.src-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.src-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bar-row .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.resume-meta b.src-name {
+  display: flex;
+  white-space: normal;
 }

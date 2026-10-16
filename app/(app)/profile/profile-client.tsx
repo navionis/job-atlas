@@ -1,6 +1,8 @@
 "use client";
-import { useRef, useState } from "react";
-import { Upload, Trash2, FileText, Plus, X, User, ArrowUpDown, Loader2, ListPlus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Upload, Trash2, FileText, Plus, X, User, ArrowUpDown, ListPlus } from "lucide-react";
+import { Spinner } from "../../../components/loader";
+import { Favicon } from "../../../components/favicon";
 import { FadeIn } from "../../../components/motion";
 import { useSnapshot, updateProfileMeta } from "../../../lib/live";
 import { Select } from "../../../components/select";
@@ -12,6 +14,7 @@ export type ResumeRow = {
   uploadedAt: number;
   chars: number;
   keywords: string[];
+  enriched?: boolean;
 };
 export type ProfileData = {
   keywords: string[];
@@ -60,6 +63,26 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
     [error, setError] = useState(""),
     [kw, setKw] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const pendingAi = pf.resumes.some((r) => r.enriched === false);
+  useEffect(() => {
+    if (!pendingAi) return;
+    let n = 0;
+    const t = setInterval(async () => {
+      if (++n > 20) {
+        clearInterval(t);
+        return;
+      }
+      try {
+        const r = await fetch("/api/profile", { cache: "no-store" });
+        if (!r.ok) return;
+        const d = await r.json();
+        setPf((p) => ({ ...p, ...d }));
+        if (d.keywords || d.sourceRank)
+          updateProfileMeta({ keywords: d.keywords || [], sourceRank: d.sourceRank || {} });
+      } catch {}
+    }, 8000);
+    return () => clearInterval(t);
+  }, [pendingAi]);
   const apply = (d: Partial<ProfileData>) => {
     setPf((p) => ({ ...p, ...d }));
     updateProfileMeta({ keywords: d.keywords ?? pf.keywords, sourceRank: d.sourceRank ?? pf.sourceRank });
@@ -186,7 +209,13 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                     {fmt(r.size)} · {r.chars.toLocaleString()} chars captured ·{" "}
                     {new Date(r.uploadedAt).toLocaleString()}
                   </small>
-                  <small>{r.keywords.length} keywords extracted</small>
+                  {r.enriched === false ? (
+                    <small className="ai-run">
+                      <Spinner size={11} /> Extracting keywords with Devin AI…
+                    </small>
+                  ) : (
+                    <small>{r.keywords.length} keywords extracted</small>
+                  )}
                 </div>
                 <button
                   className="resume-del"
@@ -194,7 +223,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                   onClick={() => void removeResume(r.id)}
                   title="Delete resume"
                 >
-                  {busy ? <Loader2 className="spin" size={14} /> : <Trash2 size={14} />}
+                  {busy ? <Spinner size={14} /> : <Trash2 size={14} />}
                 </button>
               </div>
             ))}
@@ -205,7 +234,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
         <div className="pf-card-head">
           <h3>Keywords</h3>
           <span className="pill">
-            {!!saving && <Loader2 className="spin" size={11} />}
+            {!!saving && <Spinner size={12} />}
             {saving ? "Saving…" : `${pf.keywords.length} active`}
           </span>
         </div>
@@ -220,7 +249,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
           <div className="kw-group" key={r.id}>
             <div className="kw-group-head">
               <FileText size={12} /> {r.name}
-              {saving === `kw:${r.id}` && <Loader2 className="spin" size={11} />}
+              {saving === `kw:${r.id}` && <Spinner size={12} />}
               <button
                 className="kw-all"
                 disabled={!!saving || busy}
@@ -255,7 +284,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
         <div className="kw-group">
           <div className="kw-group-head">
             Manual keywords
-            {saving === "kw:manual" && <Loader2 className="spin" size={11} />}
+            {saving === "kw:manual" && <Spinner size={12} />}
           </div>
           <div className="kw-list">
             {pf.manual.map((k) => (
@@ -296,7 +325,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
         <div className="pf-card-head">
           <h3>Source ranking</h3>
           <span className="pill">
-            {saving.startsWith("rank:") ? <Loader2 className="spin" size={11} /> : <ArrowUpDown size={11} />}
+            {saving.startsWith("rank:") ? <Spinner size={12} /> : <ArrowUpDown size={11} />}
             {saving.startsWith("rank:") ? "saving" : "ordering"}
           </span>
         </div>
@@ -317,12 +346,13 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                   <div className="resume-row" key={s.id}>
                     <span className="resume-icon rank-badge">{rank}</span>
                     <div className="resume-meta">
-                      <b>{s.name}</b>
+                      <b className="src-name">
+                        <Favicon source={key} size={15} /> {s.name}
+                      </b>
                       <small>
                         {s.count} jobs · {s.status}
                       </small>
                     </div>
-                    {saving === `rank:${key}` && <Loader2 className="spin rank-spin" size={13} />}
                     <Select
                       compact
                       value={String(rank)}
@@ -334,6 +364,11 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                         label: `${n} — ${n === 5 ? "Top" : n === 4 ? "High" : n === 3 ? "Normal" : n === 2 ? "Low" : "Bottom"}`,
                       }))}
                     />
+                    {saving === `rank:${key}` ? (
+                      <Spinner size={14} className="rank-spin" />
+                    ) : (
+                      <span className="rank-spin-slot" />
+                    )}
                   </div>
                 );
               })}

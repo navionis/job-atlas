@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { getSession } from "../../../../lib/auth";
 import { getProfile, saveProfile, effectiveKeywords, extractKeywords } from "../../../../lib/profiles";
+import { devinEnabled, extractKeywordsWithDevin } from "../../../../lib/devin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const MAX = 4 * 1024 * 1024;
@@ -41,16 +42,33 @@ export async function POST(request: Request) {
   text = text.replace(/\s+/g, " ").trim();
   if (text.length < 50) return Response.json({ error: "No readable text found in the file" }, { status: 422 });
   const p = await getProfile(me.email);
-  p.resumes.push({
+  const rec = {
     id: randomBytes(8).toString("hex"),
     name: f.name,
     size: f.size,
     uploadedAt: Date.now(),
     text: text.slice(0, 200000),
     keywords: extractKeywords(text),
-  });
+    enriched: !devinEnabled(),
+  };
+  p.resumes.push(rec);
   await saveProfile(me.email, p);
+  if (!rec.enriched) void enrich(me.email, rec.id, rec.name, text);
   return Response.json(view(p));
+}
+async function enrich(email: string, id: string, name: string, text: string) {
+  let kws: string[] = [];
+  try {
+    kws = await extractKeywordsWithDevin(text, name);
+  } catch {}
+  try {
+    const p = await getProfile(email);
+    const r = (p.resumes || []).find((x) => x.id === id);
+    if (!r) return;
+    if (kws.length) r.keywords = [...new Set([...r.keywords, ...kws])].slice(0, 80);
+    r.enriched = true;
+    await saveProfile(email, p);
+  } catch {}
 }
 export async function DELETE(request: Request) {
   const me = getSession(request);

@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "favicons": "node scripts/fetch-favicons.mjs"
   },
   "keywords": [],
   "author": "",

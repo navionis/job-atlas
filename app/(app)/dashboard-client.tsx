@@ -6,6 +6,7 @@ import { FadeIn, EASE } from "../../components/motion";
 import { countries, groups } from "../../lib/geo";
 import { catalog } from "../../lib/catalog";
 import { useLiveData } from "../../lib/live";
+import { Favicon } from "../../components/favicon";
 import type { JobStatus, Snapshot } from "../../lib/types";
 
 export default function DashboardClient({ initial }: { initial: Snapshot }) {
@@ -14,7 +15,7 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
   const countSt = (s: JobStatus) => data.jobs.filter((j) => stOf(j.id) === s).length;
   const srcRows = catalog
     .filter((c) => c.implemented)
-    .map((c) => ({ name: c.name, n: data.jobs.filter((j) => j.source === c.id).length }))
+    .map((c) => ({ id: c.id, name: c.name, n: data.jobs.filter((j) => j.source === c.id).length }))
     .filter((r) => r.n > 0)
     .sort((a, b) => b.n - a.n);
   const maxSrc = Math.max(1, ...srcRows.map((r) => r.n));
@@ -131,7 +132,10 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
             {srcRows.length ? (
               srcRows.map((r) => (
                 <div className="bar-row" key={r.name}>
-                  <span className="name">{r.name}</span>
+                  <span className="name">
+                    <Favicon source={r.id} size={14} />
+                    {r.name}
+                  </span>
                   <div className="track">
                     <div className="fill" style={{ width: `${(r.n / maxSrc) * 100}%` }} />
                   </div>
@@ -162,15 +166,22 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
         <FadeIn className="panel" delay={0.75}>
           <h3>Latest listings</h3>
           {data.jobs.slice(0, 8).map((j) => (
-            <div className="mini" key={j.id}>
-              <a href={j.url} target="_blank" rel="noreferrer">
-                {j.title} — {j.company}
-              </a>
-              <span>
-                {catalog.find((c) => c.id === j.source)?.name || j.source} ·{" "}
-                {j.posted ? new Date(j.posted).toLocaleDateString() : "—"}
+            <a className="mini" key={j.id} href={j.url} target="_blank" rel="noreferrer">
+              <span className="mini-fav">
+                <Favicon source={j.source} size={16} />
               </span>
-            </div>
+              <span className="mini-text">
+                <b>{j.title}</b>
+                <small>
+                  {j.company} · {j.location}
+                </small>
+              </span>
+              <span className="mini-meta">
+                <span className="src-name">{catalog.find((c) => c.id === j.source)?.name || j.source}</span>
+                <small>{j.posted ? new Date(j.posted).toLocaleDateString() : "—"}</small>
+              </span>
+              <ArrowUpRight size={14} className="mini-arrow" />
+            </a>
           ))}
         </FadeIn>
       </section>
