@@ -5,7 +5,7 @@ import {parseScope} from "./geo";
 import {catalog} from "./catalog";
 import {pgEnabled,loadState,saveState,upsertJobs} from "./db";
 import type {StoreState} from "./db";
-import type {Job,Snapshot,SourceStatus} from "./types";
+import type {Job,JobStatus,Snapshot,SourceStatus} from "./types";
 type Row=Record<string,any>;
 type Feed={id:string; provider:string; url:string; ttl:number; init?:RequestInit; html?:boolean; pages?:number; pageUrl?:(page:number)=>{url:string;init?:RequestInit}; map:(data:any)=>Job[]};
 const H=3600000;
@@ -87,11 +87,12 @@ export function feeds():Feed[]{
 }
 const dir=process.env.DATA_DIR||join(process.cwd(),".data");
 const file=join(dir,"feeds.json");
-function load():StoreState{try{const d=JSON.parse(readFileSync(file,"utf8"));if(!d.entries||!d.attempts||!d.lifetime)throw Error();return d}catch(e:any){if(e.code!=="ENOENT")throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");return {entries:{},attempts:{},lifetime:{}}}}
+function load():StoreState{try{const d=JSON.parse(readFileSync(file,"utf8"));if(!d.entries||!d.attempts||!d.lifetime)throw Error();d.statuses??={};return d}catch(e:any){if(e.code!=="ENOENT")throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");return {entries:{},attempts:{},lifetime:{},statuses:{}}}}
 const globalState=globalThis as typeof globalThis & {atlas?:{state:StoreState;pending?:Promise<Snapshot>;hydrated?:Promise<void>;pg?:boolean}};
 const shared=globalState.atlas??=( {state:load()} );
 shared.hydrated??=(async()=>{if(pgEnabled()){const s=await loadState();if(s){shared.state=s;shared.pg=true}else shared.pg=false}else shared.pg=false})();
 export function storageBackend(){return shared.pg?"postgresql":"file"}
+export async function setJobStatus(id:string,status:JobStatus){await shared.hydrated;if(status==="pending")delete shared.state.statuses[id];else shared.state.statuses[id]=status;await save()}
 async function save(){if(shared.pg)await saveState(shared.state);else{mkdirSync(dir,{recursive:true});writeFileSync(file+".tmp",JSON.stringify(shared.state));renameSync(file+".tmp",file)}}
 export function retryDelay(value:string|null,now=Date.now()){if(!value)return 15*60000;const n=Number(value);return Number.isFinite(n)?Math.max(60000,n*1000):Math.max(60000,(Date.parse(value)||now+15*60000)-now)}
 function reserve(f:Feed){
@@ -133,6 +134,6 @@ async function collect():Promise<Snapshot>{
  for(const c of catalog.filter(c=>c.implemented&&!configured.some(f=>f.provider===c.id)))sources.push({id:c.id,name:c.name,status:"not configured",count:0,fetchedAt:0,nextFetch:0,detail:"Add credentials or board slugs in .env.local"});
  const seen=new Set<string>();
  const jobs=configured.flatMap(f=>shared.state.entries[f.id]?.jobs||[]).filter(j=>{const k=j.url.split("?")[0];if(seen.has(k))return false;seen.add(k);return true}).sort((a,b)=>b.posted.localeCompare(a.posted));
- return {jobs,sources,updatedAt:Math.max(0,...sources.map(s=>s.fetchedAt))};
+ return {jobs,sources,statuses:shared.state.statuses,updatedAt:Math.max(0,...sources.map(s=>s.fetchedAt))};
 }
 export function snapshot(){if(!shared.pending)shared.pending=collect().finally(()=>{shared.pending=undefined});return shared.pending}

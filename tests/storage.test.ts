@@ -9,10 +9,10 @@ test('postgres layer round-trips feed state and upserts jobs',async()=>{
  process.env.DATABASE_URL='postgres://pg-mem';
  const mem=newDb();const {Pool:MemPool}=mem.adapters.createPg();
  setPoolForTesting(new MemPool() as unknown as Pool);
- const state:StoreState={entries:{remotive:{jobs:[job('j1')],next:123,fetched:456,status:'connected',detail:'ok'}},attempts:{'remotive:abc':[1,2,3]},lifetime:{'remotive:abc':4}};
+ const state:StoreState={entries:{remotive:{jobs:[job('j1')],next:123,fetched:456,status:'connected',detail:'ok'}},attempts:{'remotive:abc':[1,2,3]},lifetime:{'remotive:abc':4},statuses:{'remotive:j1':'applied'}};
  await saveState(state);
  const loaded=await loadState();
- assert(loaded);assert.equal(loaded!.entries.remotive.status,'connected');assert.equal(loaded!.entries.remotive.jobs.length,1);assert.deepEqual(loaded!.attempts['remotive:abc'],[1,2,3]);assert.equal(loaded!.lifetime['remotive:abc'],4);
+ assert(loaded);assert.equal(loaded!.entries.remotive.status,'connected');assert.equal(loaded!.entries.remotive.jobs.length,1);assert.deepEqual(loaded!.attempts['remotive:abc'],[1,2,3]);assert.equal(loaded!.lifetime['remotive:abc'],4);assert.equal(loaded!.statuses['remotive:j1'],'applied');
  state.entries.remotive.status='stale';await saveState(state);
  assert.equal((await loadState())!.entries.remotive.status,'stale');
  await upsertJobs([job('j1'),job('j2')]);

@@ -1,7 +1,7 @@
 import {Pool} from "pg";
-import type {Job} from "./types";
+import type {Job,JobStatus} from "./types";
 export type Entry={jobs:Job[];next:number;fetched:number;status:string;detail:string};
-export type StoreState={entries:Record<string,Entry>;attempts:Record<string,number[]>;lifetime:Record<string,number>};
+export type StoreState={entries:Record<string,Entry>;attempts:Record<string,number[]>;lifetime:Record<string,number>;statuses:Record<string,JobStatus>};
 let pool:Pool|undefined,schema:Promise<Pool>|undefined;
 export function pgEnabled(){return !!process.env.DATABASE_URL}
 // An sslmode/ssl query param in the URL would override the explicit ssl option; DATABASE_SSL owns it.
@@ -16,6 +16,7 @@ async function client():Promise<Pool>{
   await pool.query(`create table if not exists jobs(job_id text primary key,source text not null,title text not null,company text not null,url text not null,location text not null,remote boolean not null default false,posted timestamptz,tags jsonb not null default '[]',scope jsonb,eligibility jsonb,summary text not null default '',first_seen timestamptz not null default now(),last_seen timestamptz not null default now())`);
   await pool.query(`create index if not exists jobs_source_idx on jobs(source)`);
   await pool.query(`create index if not exists jobs_posted_idx on jobs(posted desc)`);
+  await pool.query(`create table if not exists job_status(job_id text primary key,status text not null,updated timestamptz not null default now())`);
   return pool;
  })().catch(e=>{schema=undefined;throw e});
  return schema;
@@ -23,10 +24,11 @@ async function client():Promise<Pool>{
 export async function loadState():Promise<StoreState|null>{
  try{
   const p=await client();
-  const [e,a]=await Promise.all([p.query(`select feed_id,jobs,next_fetch,fetched_at,status,detail from feed_state`),p.query(`select scope,attempts,lifetime from feed_attempts`)]);
-  const state:StoreState={entries:{},attempts:{},lifetime:{}};
+  const [e,a,s]=await Promise.all([p.query(`select feed_id,jobs,next_fetch,fetched_at,status,detail from feed_state`),p.query(`select scope,attempts,lifetime from feed_attempts`),p.query(`select job_id,status from job_status`)]);
+  const state:StoreState={entries:{},attempts:{},lifetime:{},statuses:{}};
   for(const r of e.rows)state.entries[r.feed_id]={jobs:r.jobs,next:Number(r.next_fetch),fetched:Number(r.fetched_at),status:r.status,detail:r.detail};
   for(const r of a.rows){state.attempts[r.scope]=r.attempts;state.lifetime[r.scope]=Number(r.lifetime)}
+  for(const r of s.rows)if(["pending","applied","ignored"].includes(r.status))state.statuses[r.job_id]=r.status;
   return state;
  }catch{return null}
 }
@@ -42,6 +44,8 @@ export async function saveState(state:StoreState){
   const p=await client();
   await insertRows(p,Object.entries(state.entries).map(([id,e])=>[id,JSON.stringify(e.jobs),e.next,e.fetched,e.status,e.detail]),6,ph=>`insert into feed_state(feed_id,jobs,next_fetch,fetched_at,status,detail) values ${ph} on conflict(feed_id) do update set jobs=excluded.jobs,next_fetch=excluded.next_fetch,fetched_at=excluded.fetched_at,status=excluded.status,detail=excluded.detail`);
   await insertRows(p,Object.entries(state.attempts).map(([scope,a])=>[scope,JSON.stringify(a),state.lifetime[scope]||0]),3,ph=>`insert into feed_attempts(scope,attempts,lifetime) values ${ph} on conflict(scope) do update set attempts=excluded.attempts,lifetime=excluded.lifetime`);
+  await p.query(`delete from job_status where not (job_id = any($1::text[]))`,[Object.keys(state.statuses)]);
+  await insertRows(p,Object.entries(state.statuses).map(([id,s])=>[id,s]),2,ph=>`insert into job_status(job_id,status) values ${ph} on conflict(job_id) do update set status=excluded.status,updated=now()`);
  }catch{}
 }
 export async function upsertJobs(jobs:Job[]){
