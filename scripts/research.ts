@@ -1,5 +1,5 @@
 import { writeFileSync, copyFileSync } from "node:fs";
-import { catalog } from "./lib/catalog";
+import { catalog } from "../lib/catalog";
 const header = `# Job-feed API research\n\nChecked October 6, 2026 against linked provider documentation. 23 sources surveyed; 13 implemented connectors. This is broad coverage of public and partner APIs, not an exhaustive inventory of every job site. “Not published” means a numerical limit was not found in the checked official documentation, not unlimited access.\n\n## Source comparison\n\nAll implemented connectors use HTTPS REST. No public upstream WebSocket job-listing stream was verified in this survey. Some vendors offer employer/account webhooks for applications or publishing; those are not global job feeds. This project uses server-sent events (SSE) for browser updates from a rate-limited cache.\n\n| Source and primary documentation | Access | Rate limit / quota | Coverage | Project status | App refresh |\n|---|---|---|---|---|---|\n`;
 const rows = catalog
   .map(

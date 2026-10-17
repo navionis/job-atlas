@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 async function valid(value: string, secret: string) {
   const [b64email, exp, sig] = value.split(".");
-  if (!b64email || !exp || !sig || Number(exp) < Date.now()) return false;
+  if (!secret || !b64email || !exp || !sig || Number(exp) < Date.now()) return false;
   try {
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
@@ -28,4 +28,4 @@ export default async function proxy(req: NextRequest) {
   url.search = "";
   return NextResponse.redirect(url);
 }
-export const config = { matcher: ["/((?!api/auth|login|_next|.*\\..*).*)"] };
+export const config = { matcher: ["/((?!api/auth|api/health|login|_next|.*\\..*).*)"] };

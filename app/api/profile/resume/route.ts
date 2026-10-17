@@ -53,6 +53,21 @@ export async function POST(request: Request) {
   await saveProfile(me.email, p);
   return Response.json(view(p));
 }
+export async function PATCH(request: Request) {
+  const me = getSession(request);
+  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const body = await request.json().catch(() => ({}));
+  const id = String(body.id || "");
+  const alias = String(body.alias ?? "")
+    .trim()
+    .slice(0, 80);
+  const p = await getProfile(me.email);
+  const r = (p.resumes || []).find((x) => x.id === id);
+  if (!r) return Response.json({ error: "Unknown resume" }, { status: 404 });
+  r.alias = alias || undefined;
+  await saveProfile(me.email, p);
+  return Response.json(view(p));
+}
 export async function DELETE(request: Request) {
   const me = getSession(request);
   if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });

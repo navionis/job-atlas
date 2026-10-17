@@ -1,15 +1,17 @@
 "use client";
 import { useRef, useState } from "react";
-import { Upload, Trash2, FileText, Plus, X, User, ArrowUpDown, ListPlus } from "lucide-react";
+import { toast } from "sonner";
+import { Upload, Trash2, FileText, Plus, X, User, ListPlus, Pencil, Check } from "lucide-react";
 import { Spinner } from "../../../components/loader";
-import { Favicon } from "../../../components/favicon";
 import { FadeIn } from "../../../components/motion";
-import { useSnapshot, updateProfileMeta } from "../../../lib/live";
-import { Select } from "../../../components/select";
+import { updateProfileMeta } from "../../../lib/live";
+import { FiltersPanel } from "../../../components/filters-panel";
+import type { DiscoverFilters } from "../../../lib/types";
 import type { Session } from "../../../lib/auth";
 export type ResumeRow = {
   id: string;
   name: string;
+  alias?: string;
   size: number;
   uploadedAt: number;
   chars: number;
@@ -21,6 +23,7 @@ export type ProfileData = {
   excluded: string[];
   resumes: ResumeRow[];
   sourceRank: Record<string, number>;
+  filters: Partial<DiscoverFilters>;
 };
 function KwAdd({
   onAdd,
@@ -65,12 +68,13 @@ function KwAdd({
   );
 }
 export default function ProfileClient({ me, initial }: { me: Session; initial: ProfileData }) {
-  const { data } = useSnapshot();
   const [pf, setPf] = useState<ProfileData>(initial);
   const [busy, setBusy] = useState(false),
     [saving, setSaving] = useState(""),
-    [error, setError] = useState(""),
-    [kw, setKw] = useState("");
+    [kw, setKw] = useState(""),
+    [renaming, setRenaming] = useState(""),
+    [aliasVal, setAliasVal] = useState(""),
+    [deleting, setDeleting] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const kwRef = useRef<HTMLInputElement>(null);
   const apply = (d: Partial<ProfileData>) => {
@@ -79,7 +83,6 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
   };
   const upload = async (f: File) => {
     setBusy(true);
-    setError("");
     try {
       const fd = new FormData();
       fd.append("file", f);
@@ -87,24 +90,28 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
       const d = await r.json();
       if (!r.ok) throw Error(d.error || "Upload failed");
       apply(d);
+      toast.success(
+        `"${f.name}" uploaded — ${d.resumes?.find((x: ResumeRow) => x.name === f.name)?.keywords.length ?? 0} keywords extracted`,
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      toast.error(e instanceof Error ? e.message : "Upload failed");
     }
     setBusy(false);
     if (fileRef.current) fileRef.current.value = "";
   };
   const removeResume = async (id: string) => {
-    setBusy(true);
-    setError("");
+    if (deleting) return;
+    setDeleting(id);
     try {
       const r = await fetch("/api/profile/resume?id=" + encodeURIComponent(id), { method: "DELETE" });
       const d = await r.json();
       if (!r.ok) throw Error();
       apply(d);
+      toast.success("Resume deleted");
     } catch {
-      setError("Delete failed — try again");
+      toast.error("Delete failed — try again");
     }
-    setBusy(false);
+    setDeleting("");
   };
   const put = async (body: object, key = "save") => {
     setSaving(key);
@@ -118,10 +125,43 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
       if (!r.ok) throw Error();
       apply(d);
     } catch {
-      setError("Could not save changes");
+      toast.error("Could not save changes");
     }
     setSaving("");
   };
+  const saveAlias = async (id: string) => {
+    if (saving) return;
+    setSaving("rn:" + id);
+    try {
+      const r = await fetch("/api/profile/resume", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, alias: aliasVal }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error || "Rename failed");
+      apply(d);
+      setRenaming("");
+      toast.success(aliasVal.trim() ? "Alias saved" : "Alias cleared");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rename failed");
+    }
+    setSaving("");
+  };
+  const filters: DiscoverFilters = {
+    country: pf.filters.country || "",
+    group: pf.filters.group || "",
+    mode: pf.filters.mode || "location",
+    source: pf.filters.source || "",
+    sched: pf.filters.sched || "",
+    statusFilter: pf.filters.statusFilter || "listed",
+    remote: pf.filters.remote === "onsite" ? "onsite" : pf.filters.remote ? "remote" : "",
+    remoteTo: pf.filters.remoteTo || "",
+    unknown: !!pf.filters.unknown,
+    query: pf.filters.query || "",
+  };
+  const setFilters = (patch: Partial<DiscoverFilters>) => put({ filters: { ...pf.filters, ...patch } }, "filters");
+  const resetFilters = () => put({ filters: {} }, "filters");
   const addKw = () => {
     if (saving) return;
     const ks = [
@@ -148,11 +188,6 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
         </div>
         <span className="pill green">Google account</span>
       </div>
-      {error && (
-        <div className="alert" role="alert">
-          {error}
-        </div>
-      )}
       <div className="pf-account">
         {me.picture ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -188,7 +223,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
           }}
         />
         <button className="primary" disabled={busy} onClick={() => fileRef.current?.click()}>
-          <Upload size={14} /> {busy ? "Processing…" : "Upload resume"}
+          {busy ? <Spinner size={14} /> : <Upload size={14} />} {busy ? "Processing…" : "Upload resume"}
         </button>
         {pf.resumes.length === 0 ? (
           <div className="pf-empty">
@@ -203,20 +238,56 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                   <FileText size={16} />
                 </span>
                 <div className="resume-meta">
-                  <b>{r.name}</b>
+                  {renaming === r.id ? (
+                    <div className="alias-edit">
+                      <input
+                        autoFocus
+                        value={aliasVal}
+                        placeholder={r.name}
+                        maxLength={80}
+                        onChange={(e) => setAliasVal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveAlias(r.id);
+                          if (e.key === "Escape") setRenaming("");
+                        }}
+                      />
+                      <button
+                        className="ghost"
+                        disabled={!!saving}
+                        onClick={() => void saveAlias(r.id)}
+                        title="Save alias"
+                      >
+                        {saving === `rn:${r.id}` ? <Spinner size={12} /> : <Check size={12} />}
+                      </button>
+                    </div>
+                  ) : (
+                    <b>{r.alias || r.name}</b>
+                  )}
                   <small>
+                    {r.alias ? `${r.name} · ` : ""}
                     {fmt(r.size)} · {r.chars.toLocaleString()} chars captured ·{" "}
                     {new Date(r.uploadedAt).toLocaleString()}
                   </small>
                   <small>{r.keywords.length} keywords extracted</small>
                 </div>
                 <button
+                  className="resume-del edit"
+                  disabled={busy || !!saving || !!deleting}
+                  onClick={() => {
+                    setRenaming(r.id);
+                    setAliasVal(r.alias || "");
+                  }}
+                  title="Rename alias"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
                   className="resume-del"
-                  disabled={busy}
+                  disabled={busy || !!deleting}
                   onClick={() => void removeResume(r.id)}
                   title="Delete resume"
                 >
-                  {busy ? <Spinner size={14} /> : <Trash2 size={14} />}
+                  {deleting === r.id ? <Spinner size={14} /> : <Trash2 size={14} />}
                 </button>
               </div>
             ))}
@@ -241,7 +312,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
         {pf.resumes.map((r) => (
           <div className="kw-group" key={r.id}>
             <div className="kw-group-head">
-              <FileText size={12} /> {r.name}
+              <FileText size={12} /> {r.alias || r.name}
               {saving === `kw:${r.id}` && <Spinner size={12} />}
               <button
                 className="kw-all"
@@ -318,59 +389,20 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
           </div>
         </div>
       </div>
-      <div className="pf-card">
+      <div className="pf-card" id="filters">
         <div className="pf-card-head">
-          <h3>Source ranking</h3>
+          <h3>Search preferences</h3>
           <span className="pill">
-            {saving.startsWith("rank:") ? <Spinner size={12} /> : <ArrowUpDown size={11} />}
-            {saving.startsWith("rank:") ? "saving" : "ordering"}
+            {saving === "filters" && <Spinner size={12} />}
+            {saving === "filters" ? "Saving…" : "Applied in Discover"}
           </span>
         </div>
         <p className="pf-hint">
-          Rank each feed 1–5. Discover jobs sorts listings from your highest-ranked sources first, then by date. Unset
-          sources default to 3.
+          Your default filters for Discover jobs — saved to your profile and applied automatically wherever you sign in.
         </p>
-        {data.sources.length === 0 ? (
-          <p className="pf-hint">No feeds connected yet.</p>
-        ) : (
-          <div className="pf-resumes">
-            {[...data.sources]
-              .sort((a, b) => b.count - a.count)
-              .map((s) => {
-                const key = s.id.split(":")[0],
-                  rank = pf.sourceRank[key] ?? 3;
-                return (
-                  <div className="resume-row" key={s.id}>
-                    <span className="resume-icon rank-badge">{rank}</span>
-                    <div className="resume-meta">
-                      <b className="src-name">
-                        <Favicon source={key} size={15} /> {s.name}
-                      </b>
-                      <small>
-                        {s.count} jobs · {s.status}
-                      </small>
-                    </div>
-                    <Select
-                      compact
-                      value={String(rank)}
-                      disabled={!!saving || busy}
-                      onChange={(v) => put({ sourceRank: { ...pf.sourceRank, [key]: Number(v) } }, `rank:${key}`)}
-                      ariaLabel={`Rank for ${s.name}`}
-                      options={[5, 4, 3, 2, 1].map((n) => ({
-                        value: String(n),
-                        label: `${n} — ${n === 5 ? "Top" : n === 4 ? "High" : n === 3 ? "Normal" : n === 2 ? "Low" : "Bottom"}`,
-                      }))}
-                    />
-                    {saving === `rank:${key}` ? (
-                      <Spinner size={14} className="rank-spin" />
-                    ) : (
-                      <span className="rank-spin-slot" />
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        )}
+        <div className="fp-grid">
+          <FiltersPanel value={filters} onChange={setFilters} onReset={resetFilters} busy={saving === "filters"} />
+        </div>
       </div>
     </FadeIn>
   );

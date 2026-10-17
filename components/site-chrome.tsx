@@ -11,28 +11,36 @@ import type { Session } from "../lib/auth";
 const LINKS: [string, string][] = [
   ["/", "Dashboard"],
   ["/jobs", "Discover jobs"],
-  ["/matches", "Matches"],
-  ["/sources", "Sources & limits"],
   ["/profile", "Profile"],
 ];
 
-export function SiteHeader({ me }: { me: Session }) {
+export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean }) {
   const pathname = usePathname();
   const { connection } = useSnapshot();
   const [scrolled, setScrolled] = useState(false);
+  const scrolledRef = useRef(false);
   const [dark, setDark] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    try {
-      setDark(localStorage.getItem("atlas-theme") === "dark");
-    } catch {}
+    const raf = requestAnimationFrame(() => {
+      try {
+        setDark(localStorage.getItem("atlas-theme") === "dark");
+      } catch {}
+    });
     let tick = false;
     const onScroll = () => {
       if (tick) return;
       tick = true;
       requestAnimationFrame(() => {
-        setScrolled(window.scrollY > 24);
+        const y = window.scrollY;
+        // Hysteresis: shrinking the header shortens the document, which would
+        // drop scrollY back under the threshold and oscillate forever.
+        const next = scrolledRef.current ? y > 6 : y > 40;
+        if (next !== scrolledRef.current) {
+          scrolledRef.current = next;
+          setScrolled(next);
+        }
         tick = false;
       });
     };
@@ -47,6 +55,7 @@ export function SiteHeader({ me }: { me: Session }) {
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener("scroll", onScroll);
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
@@ -72,7 +81,7 @@ export function SiteHeader({ me }: { me: Session }) {
         </span>
       </Link>
       <nav>
-        {LINKS.map(([href, label]) => {
+        {[...LINKS, ...(admin ? [["/admin", "Admin"] as [string, string]] : [])].map(([href, label]) => {
           const active = pathname === href;
           return (
             <Link key={href} href={href} className={active ? "active" : ""}>
@@ -104,6 +113,11 @@ export function SiteHeader({ me }: { me: Session }) {
                 <Link href="/profile" onClick={() => setMenu(false)}>
                   Profile
                 </Link>
+                {admin && (
+                  <Link href="/admin" onClick={() => setMenu(false)}>
+                    Admin
+                  </Link>
+                )}
                 <a href="/api/auth/logout">Sign out</a>
               </div>
             )}
@@ -135,8 +149,8 @@ export function SiteFooter() {
         <div className="foot-links">
           <Link href="/">Dashboard</Link>
           <Link href="/jobs">Discover jobs</Link>
-          <Link href="/matches">Matches</Link>
-          <Link href="/sources">Sources & limits</Link>
+          <Link href="/jobs">Matched for you</Link>
+          <Link href="/admin">Sources & admin</Link>
           <Link href="/profile">Profile</Link>
         </div>
         <div className="foot-note">

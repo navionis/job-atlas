@@ -1,10 +1,11 @@
 import { getSession } from "../../../lib/auth";
-import { setSourceDisabled } from "../../../lib/feeds";
+import { setSourceDisabled, isAdminUser } from "../../../lib/feeds";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const me = getSession(request);
   if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!(await isAdminUser(me.email))) return Response.json({ error: "Admin only" }, { status: 403 });
   try {
     const { id, disabled } = await request.json();
     if (typeof id !== "string" || !id || typeof disabled !== "boolean")

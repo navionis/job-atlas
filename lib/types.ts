@@ -33,9 +33,28 @@ export type Snapshot = {
 export type Resume = {
   id: string;
   name: string;
+  alias?: string;
   size: number;
   uploadedAt: number;
   text: string;
   keywords: string[];
 };
-export type Profile = { keywords: string[]; excluded: string[]; resumes: Resume[]; sourceRank: Record<string, number> };
+export type DiscoverFilters = {
+  country: string;
+  group: string;
+  mode: string;
+  source: string;
+  sched: string;
+  statusFilter: string;
+  remote: string;
+  remoteTo: string;
+  unknown: boolean;
+  query: string;
+};
+export type Profile = {
+  keywords: string[];
+  excluded: string[];
+  resumes: Resume[];
+  sourceRank: Record<string, number>;
+  filters: Partial<DiscoverFilters>;
+};

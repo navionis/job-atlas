@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { newDb } from "pg-mem";
 import type { Pool } from "pg";
-import { setPoolForTesting, loadState, saveState, upsertJobs } from "../lib/db";
+import {
+  setPoolForTesting,
+  loadState,
+  saveState,
+  upsertJobs,
+  dbSetJobStatus,
+  dbDeleteJobStatus,
+  dbSetFeedDisabled,
+  dbSetAdmin,
+} from "../lib/db";
 import type { StoreState } from "../lib/db";
 import type { Job } from "../lib/types";
 const job = (id: string): Job => ({
@@ -36,10 +45,15 @@ test("postgres layer round-trips feed state and upserts jobs", async () => {
     entries: { remotive: { jobs: [job("j1")], next: 123, fetched: 456, status: "connected", detail: "ok" } },
     attempts: { "remotive:abc": [1, 2, 3] },
     lifetime: { "remotive:abc": 4 },
-    statuses: { "user@example.com": { "remotive:j1": { status: "applied", at: 456 } } },
-    disabled: ["web3career"],
+    statuses: {},
+    disabled: [],
+    admins: [],
   };
   await saveState(state);
+  // User-owned rows persist via targeted ops — saveState must never touch them.
+  await dbSetJobStatus("user@example.com", "remotive:j1", "applied", 456);
+  await dbSetFeedDisabled("web3career", true);
+  await dbSetAdmin("first@example.com", true);
   const loaded = await loadState();
   assert(loaded);
   assert.equal(loaded!.entries.remotive.status, "connected");
@@ -49,9 +63,17 @@ test("postgres layer round-trips feed state and upserts jobs", async () => {
   assert.equal(loaded!.statuses["user@example.com"]["remotive:j1"].status, "applied");
   assert.equal(loaded!.statuses["user@example.com"]["remotive:j1"].at, 456);
   assert.deepEqual(loaded!.disabled, ["web3career"]);
+  assert.deepEqual(loaded!.admins, ["first@example.com"]);
   state.entries.remotive.status = "stale";
-  await saveState(state);
-  assert.equal((await loadState())!.entries.remotive.status, "stale");
+  await saveState(state); // bulk save must not clobber user-owned rows
+  const after = await loadState();
+  assert.equal(after!.entries.remotive.status, "stale");
+  assert.equal(after!.statuses["user@example.com"]["remotive:j1"].status, "applied");
+  assert.deepEqual(after!.disabled, ["web3career"]);
+  await dbSetJobStatus("user@example.com", "remotive:j1", "ignored", 999);
+  assert.equal((await loadState())!.statuses["user@example.com"]["remotive:j1"].status, "ignored");
+  await dbDeleteJobStatus("user@example.com", "remotive:j1");
+  assert.equal((await loadState())!.statuses["user@example.com"]?.["remotive:j1"], undefined);
   await upsertJobs([job("j1"), job("j2")]);
   assert.equal(mem.public.many("select job_id from jobs").length, 2);
   await upsertJobs([{ ...job("j1"), title: "Senior Engineer" }]);

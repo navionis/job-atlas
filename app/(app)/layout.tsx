@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifySessionValue } from "../../lib/auth";
+import { isAdminUser } from "../../lib/feeds";
 import { SiteHeader, SiteFooter, ScrollTop } from "../../components/site-chrome";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -9,7 +10,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!me) redirect("/login");
   return (
     <>
-      <SiteHeader me={me} />
+      <SiteHeader me={me} admin={await isAdminUser(me.email)} />
       <main>{children}</main>
       <SiteFooter />
       <ScrollTop />

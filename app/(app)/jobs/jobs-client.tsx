@@ -1,82 +1,142 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, MapPin, ArrowUpRight, Compass, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, MapPin, ArrowUpRight, Compass, FileText } from "lucide-react";
 import { Spinner } from "../../../components/loader";
 import { Favicon } from "../../../components/favicon";
 import { EASE } from "../../../components/motion";
-import { countries, groups, scopeMatches } from "../../../lib/geo";
+import { countries, scopeMatches } from "../../../lib/geo";
 import { catalog } from "../../../lib/catalog";
 import { useLiveData, useLiveProfileMeta, mark } from "../../../lib/live";
-import { Select } from "../../../components/select";
-import type { Snapshot } from "../../../lib/types";
+import { rankJobs, type JobMatch } from "../../../lib/match";
+import type { Snapshot, DiscoverFilters } from "../../../lib/types";
 
-export default function JobsClient({
-  initial,
-  meta,
-}: {
-  initial: Snapshot;
-  meta: { keywords: string[]; sourceRank: Record<string, number> };
-}) {
+type Meta = {
+  keywords: string[];
+  sourceRank: Record<string, number>;
+  filters: Partial<DiscoverFilters>;
+  resumes: { id: string; name: string; alias?: string; keywords: string[] }[];
+  manual: string[];
+  excluded: string[];
+};
+
+const PAGE = 15;
+const STAGES = [
+  ["listed", "Listed"],
+  ["applied", "Applied"],
+  ["cancelled", "Cancelled"],
+  ["ignored", "Ignored"],
+  ["all", "All"],
+] as const;
+type JobStatus = (typeof STAGES)[number][0];
+
+export default function JobsClient({ initial, meta }: { initial: Snapshot; meta: Meta }) {
   const { data, loading, error } = useLiveData(initial);
   const { keywords: profileKw, sourceRank: srcRank } = useLiveProfileMeta(meta);
-  const [country, setCountry] = useState(""),
-    [group, setGroup] = useState(""),
-    [query, setQuery] = useState(""),
-    [source, setSource] = useState(""),
-    [remote, setRemote] = useState(false),
-    [remoteTo, setRemoteTo] = useState(""),
-    [sched, setSched] = useState(""),
-    [statusFilter, setStatusFilter] = useState("listed"),
-    [mode, setMode] = useState("location"),
-    [unknown, setUnknown] = useState(false),
-    [page, setPage] = useState(1),
-    [marking, setMarking] = useState<string[]>([]);
+  const sp = useSearchParams();
+  const f = meta.filters;
+  const country = f.country || "",
+    group = f.group || "",
+    source = f.source || "",
+    remote = f.remote === "onsite" ? "onsite" : f.remote ? "remote" : "",
+    remoteTo = f.remoteTo || "",
+    sched = f.sched || "",
+    mode = f.mode || "location",
+    unknown = !!f.unknown;
+  const defaultTab = meta.resumes[0]?.id || (meta.manual.length ? "manual" : "all");
+  const validMatch = (v: string | null): v is string =>
+    v === "all" || (v === "manual" && meta.manual.length > 0) || meta.resumes.some((r) => r.id === v);
+  const validStatus = (v: string | null): v is JobStatus => STAGES.some(([s]) => s === v);
+  const tab = validMatch(sp.get("match")) ? sp.get("match")! : defaultTab;
+  const statusFilter: JobStatus = validStatus(sp.get("status")) ? (sp.get("status") as JobStatus) : "listed";
+  const hydrated = useRef(false);
+  const query = sp.get("q") ?? "";
+  const setParams = useCallback(
+    (updates: Record<string, string | null>, push = false) => {
+      const p = new URLSearchParams(sp.toString());
+      for (const [k, v] of Object.entries(updates)) {
+        if (v === null || v === "") p.delete(k);
+        else p.set(k, v);
+      }
+      const s = p.toString();
+      const url = s ? `/jobs?${s}` : "/jobs";
+      if (push) window.history.pushState(null, "", url);
+      else window.history.replaceState(null, "", url);
+    },
+    [sp],
+  );
+  const setTab = (v: string) => setParams({ match: v === defaultTab ? null : v }, true);
+  const setStatusFilter = (v: JobStatus) => setParams({ status: v === "listed" ? null : v }, true);
+  const setQuery = (v: string) => setParams({ q: v });
+  const [marking, setMarking] = useState<string[]>([]),
+    [shown, setShown] = useState(PAGE);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const matched = tab !== "all";
+  const kwSources = meta.resumes.length + (meta.manual.length ? 1 : 0);
   const doMark = (id: string, st: "listed" | "applied" | "cancelled" | "ignored") => {
     setMarking((m) => [...m, id]);
     void mark(id, st).finally(() => setMarking((m) => m.filter((x) => x !== id)));
   };
-  const filterKey = [country, group, query, source, remote, remoteTo, sched, statusFilter, mode, unknown].join("|");
+  const filterKey = [tab, country, group, query, source, remote, remoteTo, sched, statusFilter, mode, unknown].join(
+    "|",
+  );
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
-    setPage(1);
+    setShown(PAGE);
   }
   useEffect(() => {
-    try {
-      const f = JSON.parse(localStorage.getItem("atlas-filters") || "{}");
-      if (f.country) setCountry(f.country);
-      if (f.group) setGroup(f.group);
-      if (f.mode) setMode(f.mode);
-      if (f.source) setSource(f.source);
-      if (f.sched) setSched(f.sched);
-      if (f.statusFilter) setStatusFilter(f.statusFilter);
-      if (f.remote) setRemote(true);
-      if (f.remoteTo) setRemoteTo(f.remoteTo);
-      if (f.unknown) setUnknown(true);
-      if (f.query) setQuery(f.query);
-    } catch {}
-  }, []);
+    const el = moreRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (es) => {
+        if (es[0].isIntersecting) setShown((n) => n + PAGE);
+      },
+      { rootMargin: "600px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [matched, shown]);
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        "atlas-filters",
-        JSON.stringify({ country, group, mode, source, sched, statusFilter, remote, remoteTo, unknown, query }),
-      );
-    } catch {}
-  }, [country, group, mode, source, sched, statusFilter, remote, remoteTo, unknown, query]);
+    if (error) toast.error(error, { action: { label: "Retry", onClick: () => window.location.reload() } });
+  }, [error]);
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) {
+      didMount.current = true;
+      return;
+    }
+    const t = setTimeout(() => {
+      void fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filters: { ...meta.filters, query } }),
+      }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [query, meta.filters]);
+  useEffect(() => {
+    if (hydrated.current) return;
+    hydrated.current = true;
+    if (sp.get("q") === null && meta.filters.query) setParams({ q: meta.filters.query });
+  }, [sp, meta.filters.query, setParams]);
   const selected = country || group;
   const homeName = countries.find((c) => c.code === remoteTo)?.name || "";
+  const name = countries.find((c) => c.code === country)?.name || group || "Everywhere";
   const terms = useMemo(
     () => (query ? [query.toLowerCase()] : profileKw.map((k) => k.toLowerCase())),
     [query, profileKw],
   );
-  const filtered = useMemo(
+  const statuses = useMemo(() => data.statuses || {}, [data.statuses]);
+  const preStatus = useMemo(
     () =>
       data.jobs
         .filter((j) => {
-          if ((source && j.source !== source) || (remote && !j.remote)) return false;
+          if (source && j.source !== source) return false;
+          if ((remote === "remote" && !j.remote) || (remote === "onsite" && j.remote)) return false;
           if (remoteTo) {
             if (!j.remote || !scopeMatches(j.eligibility, remoteTo)) return false;
             if (j.scope.countries.includes(remoteTo) && !j.scope.excluded.includes(remoteTo)) return false;
@@ -85,8 +145,6 @@ export default function JobsClient({
             const t = `${j.title} ${j.tags.join(" ")} ${j.summary}`.toLowerCase();
             if (!new RegExp(sched + "[\\s-]?time").test(t)) return false;
           }
-          const st = (data.statuses || {})[j.id]?.status || "listed";
-          if (statusFilter !== "all" && st !== statusFilter) return false;
           if (
             terms.length &&
             !terms.some((t) => `${j.title} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(t))
@@ -98,154 +156,46 @@ export default function JobsClient({
           return scopeMatches(s, group) || (unknown && (s.unknown || s.uncertain));
         })
         .sort((a, b) => (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3) || b.posted.localeCompare(a.posted)),
-    [data, terms, country, group, source, remote, remoteTo, sched, statusFilter, mode, unknown, srcRank],
+    [data.jobs, terms, country, group, source, remote, remoteTo, sched, mode, unknown, srcRank],
   );
-  const countryOptions = countries.filter((c) => !group || groups[group]?.includes(c.code));
-  const name = countries.find((c) => c.code === country)?.name || group || "Everywhere";
-  const reset = () => {
-    setCountry("");
-    setGroup("");
-    setQuery("");
-    setSource("");
-    setRemote(false);
-    setRemoteTo("");
-    setSched("");
-    setStatusFilter("listed");
-    setUnknown(false);
-    setMode("location");
-  };
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { listed: 0, applied: 0, cancelled: 0, ignored: 0 };
+    for (const j of preStatus) {
+      const st = statuses[j.id]?.status || "listed";
+      if (st in c) c[st]++;
+    }
+    return c;
+  }, [preStatus, statuses]);
+  const filtered = useMemo(
+    () =>
+      statusFilter === "all"
+        ? preStatus
+        : preStatus.filter((j) => (statuses[j.id]?.status || "listed") === statusFilter),
+    [preStatus, statusFilter, statuses],
+  );
+  const ranked = useMemo(() => {
+    if (!matched) return [];
+    const r = meta.resumes.find((x) => x.id === tab);
+    return rankJobs(filtered, r ? r.keywords : meta.manual, meta.excluded, srcRank);
+  }, [matched, tab, filtered, meta.resumes, meta.manual, meta.excluded, srcRank]);
+  const total = matched ? ranked.length : filtered.length;
+  const display: { j: (typeof filtered)[number]; m?: JobMatch }[] = matched
+    ? ranked.slice(0, shown).map((m) => ({ j: m.job, m }))
+    : filtered.slice(0, shown).map((j) => ({ j }));
+  const activeResume = meta.resumes.find((r) => r.id === tab);
+  const chips = [
+    group && `Region: ${group}`,
+    country && `Excludes ${name}`,
+    mode === "eligibility" && "Candidate eligibility",
+    source && `Source: ${catalog.find((c) => c.id === source)?.name || source}`,
+    sched && (sched === "full" ? "Full-time" : "Part-time"),
+    remote === "remote" && "Remote only",
+    remote === "onsite" && "On-site only",
+    remoteTo && `Remote to ${homeName}`,
+    unknown && "Includes unknown scope",
+  ].filter(Boolean) as string[];
   return (
     <div className="workspace" id="listings">
-      <aside>
-        <div className="filter-title">
-          Find your place <button onClick={reset}>Reset</button>
-        </div>
-        <label>
-          REGION OR GROUP
-          <Select
-            ariaLabel="Region or group"
-            value={group}
-            onChange={(v) => {
-              setGroup(v);
-              setCountry("");
-            }}
-            options={[
-              { value: "", label: "All regions" },
-              ...Object.keys(groups)
-                .sort()
-                .map((g) => ({ value: g, label: g })),
-            ]}
-          />
-        </label>
-        <label>
-          EXCLUDE COUNTRY
-          <Select
-            ariaLabel="Country or territory"
-            value={country}
-            onChange={setCountry}
-            options={[
-              { value: "", label: "No exclusion" },
-              ...(country && !countryOptions.some((c) => c.code === country)
-                ? [
-                    {
-                      value: country,
-                      label: `${countries.find((c) => c.code === country)?.name} (selected)`,
-                    },
-                  ]
-                : []),
-              ...countryOptions.map((c) => ({ value: c.code, label: `${c.name} · ${c.code}` })),
-            ]}
-          />
-        </label>
-        <label>
-          MATCH AGAINST
-          <Select
-            ariaLabel="Match against"
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: "location", label: "Listed location" },
-              { value: "eligibility", label: "Candidate eligibility" },
-            ]}
-          />
-        </label>
-        <label>
-          SOURCE
-          <Select
-            ariaLabel="Source"
-            value={source}
-            onChange={setSource}
-            options={[
-              { value: "", label: "All connected sources" },
-              ...catalog.filter((c) => c.implemented).map((c) => ({ value: c.id, label: c.name })),
-            ]}
-          />
-        </label>
-        <label>
-          FULL / PART TIME
-          <Select
-            ariaLabel="Schedule"
-            value={sched}
-            onChange={setSched}
-            options={[
-              { value: "", label: "Any schedule" },
-              { value: "full", label: "Full-time" },
-              { value: "part", label: "Part-time" },
-            ]}
-          />
-        </label>
-        <label>
-          JOB STATUS
-          <Select
-            ariaLabel="Job status"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={[
-              { value: "listed", label: "Listed only" },
-              { value: "applied", label: "Applied only" },
-              { value: "cancelled", label: "Cancelled only" },
-              { value: "ignored", label: "Ignored only" },
-              { value: "all", label: "All statuses" },
-            ]}
-          />
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} />
-          Remote only
-        </label>
-        <label>
-          REMOTE TO
-          <Select
-            ariaLabel="Remote to country"
-            value={remoteTo}
-            onChange={setRemoteTo}
-            options={[
-              { value: "", label: "Anywhere" },
-              ...countries.map((c) => ({ value: c.code, label: `${c.name} · ${c.code}` })),
-            ]}
-          />
-        </label>
-        {remoteTo && (
-          <div className="note">
-            <b>Remote to {homeName}</b>
-            <p>
-              Showing remote listings whose candidate scope includes {homeName}, and hiding listings physically located
-              in {homeName}.
-            </p>
-          </div>
-        )}
-        <label className="check">
-          <input type="checkbox" checked={unknown} onChange={(e) => setUnknown(e.target.checked)} />
-          Include unknown / needs review
-        </label>
-        <div className="note">
-          <b>Remote ≠ worldwide</b>
-          <p>
-            A country match is a discovery aid, not proof of work authorization. Confirm the employer’s requirements
-            before applying.
-          </p>
-        </div>
-      </aside>
       <section className="results">
         <div className="search">
           <span>
@@ -261,17 +211,68 @@ export default function JobsClient({
           />
           <span className="key">{!query && profileKw.length ? "PROFILE" : "SEARCH"}</span>
         </div>
+        <div className="pipe" role="tablist" aria-label="Pipeline stage">
+          {STAGES.map(([v, l]) => (
+            <button
+              key={v}
+              className={"pipe-tab" + (statusFilter === v ? " on" : "")}
+              onClick={() => setStatusFilter(v)}
+            >
+              {l} <b>{v === "all" ? preStatus.length : counts[v]}</b>
+            </button>
+          ))}
+        </div>
+        {kwSources > 0 && (
+          <div className="m-tabs">
+            <button className={"m-tab" + (tab === "all" ? " on" : "")} onClick={() => setTab("all")}>
+              All listings
+            </button>
+            {meta.resumes.map((r) => (
+              <button key={r.id} className={"m-tab" + (tab === r.id ? " on" : "")} onClick={() => setTab(r.id)}>
+                <FileText size={13} /> {r.alias || r.name}
+              </button>
+            ))}
+            {meta.manual.length > 0 && (
+              <button className={"m-tab" + (tab === "manual" ? " on" : "")} onClick={() => setTab("manual")}>
+                Manual keywords
+              </button>
+            )}
+          </div>
+        )}
         <div className="section-title">
           <div>
             <h2>
-              {remoteTo ? `Remote jobs open to ${homeName}` : `Opportunities ${country ? "excluding" : "in"} ${name}`}
+              {matched
+                ? activeResume
+                  ? `Matched for you — ${activeResume.alias || activeResume.name}`
+                  : "Matched for you — manual keywords"
+                : remoteTo
+                  ? `Remote jobs open to ${homeName}`
+                  : `Opportunities ${country ? "excluding" : "in"} ${name}`}
             </h2>
             <p>
-              {loading ? "Checking available feeds…" : `${filtered.length} matching jobs in the loaded feed slices`}
+              {loading
+                ? "Checking available feeds…"
+                : matched
+                  ? `${ranked.length} jobs ranked against ${activeResume ? activeResume.keywords.length : meta.manual.length} keywords`
+                  : `${filtered.length} ${statusFilter === "all" ? "" : statusFilter + " "}jobs in the loaded feed slices`}
             </p>
           </div>
           <span className="pill green">{mode === "eligibility" ? "Candidate scope" : "Location matching"}</span>
         </div>
+        {chips.length > 0 && (
+          <div className="active-filters">
+            <span className="af-label">Search preferences</span>
+            {chips.map((c) => (
+              <span className="pill" key={c}>
+                {c}
+              </span>
+            ))}
+            <Link href="/profile#filters" className="alert-link">
+              Edit in Profile <ArrowUpRight size={11} />
+            </Link>
+          </div>
+        )}
         {selected && (
           <div className="coverage">
             {name} is selectable even when a provider has no coverage. Worldwide listings are included when explicitly
@@ -281,16 +282,11 @@ export default function JobsClient({
               : "Regional matches use the group definitions below."}
           </div>
         )}
-        {error && (
-          <div className="alert" role="alert">
-            {error}
-            <button onClick={() => window.location.reload()}>Retry</button>
-          </div>
-        )}
+
         {!loading && data.sources.some((s) => ["unavailable", "stale"].includes(s.status)) && (
           <div className="alert">
             Some feeds are unavailable or stale.{" "}
-            <Link href="/sources" className="alert-link">
+            <Link href="/admin" className="alert-link">
               View source status <ArrowUpRight size={11} />
             </Link>
           </div>
@@ -301,28 +297,53 @@ export default function JobsClient({
             <h3>Opening the atlas…</h3>
             <p>Fetching available sources. No sample jobs are mixed into results.</p>
           </div>
+        ) : matched && ranked.length === 0 ? (
+          <div className="empty">
+            <div className="empty-icon">
+              <FileText size={44} strokeWidth={1.2} />
+            </div>
+            <h3>No matches above the threshold</h3>
+            <p>Add more resume keywords on your profile, or relax the filters narrowing the result set.</p>
+            <Link className="primary" href="/profile">
+              Go to profile
+            </Link>
+          </div>
         ) : filtered.length === 0 ? (
           <div className="empty">
             <div className="empty-icon">
               <Compass size={44} strokeWidth={1.4} />
             </div>
-            <h3>No matching listings yet.</h3>
-            <p>
-              This does not mean there are no jobs in {name}.<br />
-              The connected sources may not cover this location.
-            </p>
-            <button className="primary" onClick={reset}>
-              Explore all locations <ArrowUpRight size={13} />
-            </button>
-            <Link className="text-button" href="/sources">
-              Check coverage & connect more sources
-            </Link>
+            {statusFilter !== "all" && preStatus.length > 0 ? (
+              <>
+                <h3>Nothing {statusFilter} yet.</h3>
+                <p>
+                  {preStatus.length} jobs match your filters — none are marked {statusFilter}.
+                </p>
+                <button className="primary" onClick={() => setStatusFilter("listed")}>
+                  View listed jobs <ArrowUpRight size={13} />
+                </button>
+              </>
+            ) : (
+              <>
+                <h3>No matching listings yet.</h3>
+                <p>
+                  This does not mean there are no jobs in {name}.<br />
+                  Your search preferences or the connected sources may not cover it.
+                </p>
+                <Link className="primary" href="/profile#filters">
+                  Adjust search preferences <ArrowUpRight size={13} />
+                </Link>
+                <Link className="text-button" href="/admin">
+                  Check coverage &amp; connect more sources
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <div className="cards">
             <AnimatePresence mode="popLayout">
-              {filtered.slice((page - 1) * 20, page * 20).map((j, i) => {
-                const se = (data.statuses || {})[j.id],
+              {display.map(({ j, m }, i) => {
+                const se = statuses[j.id],
                   st = se?.status || "listed",
                   stAt = se?.at || 0;
                 return (
@@ -335,7 +356,17 @@ export default function JobsClient({
                     exit={{ opacity: 0, y: -8 }}
                     transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.4), ease: EASE }}
                   >
-                    <div className="company-icon">{j.company.slice(0, 2).toUpperCase()}</div>
+                    {m ? (
+                      <div className="mscore" title="Keyword match score">
+                        <b>{m.score}</b>
+                        <span>match</span>
+                        <i className="mgauge">
+                          <i className="mfill" style={{ height: `${Math.min(100, m.score)}%` }} />
+                        </i>
+                      </div>
+                    ) : (
+                      <div className="company-icon">{j.company.slice(0, 2).toUpperCase()}</div>
+                    )}
                     <div className="job-content">
                       <div className="job-top">
                         <span className="job-via">
@@ -365,6 +396,12 @@ export default function JobsClient({
                       <div className="tags">
                         {j.remote && <span className="pill green">Remote</span>}
                         {(srcRank[j.source] ?? 3) >= 4 && <span className="pill">Priority feed</span>}
+                        {m?.hits.slice(0, 6).map((k) => (
+                          <span className="pill kw-hit" key={k}>
+                            {k}
+                          </span>
+                        ))}
+                        {m && m.hits.length > 6 && <span className="pill">+{m.hits.length - 6} more</span>}
                         {j.scope.groups.map((g) => (
                           <span className="pill" key={g}>
                             {g} · group match
@@ -420,17 +457,9 @@ export default function JobsClient({
             </AnimatePresence>
           </div>
         )}
-        {filtered.length > 20 && (
-          <div className="pagination">
-            <button disabled={page === 1} onClick={() => setPage(page - 1)}>
-              <ChevronLeft size={13} /> Previous
-            </button>
-            <span>
-              Page {page} of {Math.ceil(filtered.length / 20)}
-            </span>
-            <button disabled={page * 20 >= filtered.length} onClick={() => setPage(page + 1)}>
-              Next <ChevronRight size={13} />
-            </button>
+        {shown < total && (
+          <div ref={moreRef} className="m-more">
+            <Spinner size={16} /> Showing {Math.min(shown, total)} of {total} — scroll for more
           </div>
         )}
         <details className="definitions">

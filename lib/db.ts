@@ -1,16 +1,25 @@
 import { Pool } from "pg";
 import type { Job, StatusEntry } from "./types";
-export type Entry = { jobs: Job[]; next: number; fetched: number; status: string; detail: string };
+type Entry = { jobs: Job[]; next: number; fetched: number; status: string; detail: string };
 export type StoreState = {
   entries: Record<string, Entry>;
   attempts: Record<string, number[]>;
   lifetime: Record<string, number>;
   statuses: Record<string, Record<string, StatusEntry>>;
   disabled: string[];
+  admins: string[];
 };
 let pool: Pool | undefined, schema: Promise<Pool> | undefined;
 export function pgEnabled() {
   return !!process.env.DATABASE_URL;
+}
+export async function dbPing(): Promise<boolean> {
+  try {
+    await (await client()).query("select 1");
+    return true;
+  } catch {
+    return false;
+  }
 }
 // An sslmode/ssl query param in the URL would override the explicit ssl option; DATABASE_SSL owns it.
 function connStr() {
@@ -66,6 +75,7 @@ async function client(): Promise<Pool> {
       );
       await pool.query(`create table if not exists profiles(email text primary key,data jsonb not null default '{}')`);
       await pool.query(`create table if not exists feed_disabled(feed_id text primary key)`);
+      await pool.query(`create table if not exists admins(email text primary key)`);
       return pool;
     })().catch((e) => {
       schema = undefined;
@@ -76,11 +86,12 @@ async function client(): Promise<Pool> {
 export async function loadState(): Promise<StoreState | null> {
   try {
     const p = await client();
-    const [e, a, s, d] = await Promise.all([
+    const [e, a, s, d, adm] = await Promise.all([
       p.query(`select feed_id,jobs,next_fetch,fetched_at,status,detail from feed_state`),
       p.query(`select scope,attempts,lifetime from feed_attempts`),
       p.query(`select email,job_id,status,updated from job_status_user`),
       p.query(`select feed_id from feed_disabled`),
+      p.query(`select email from admins`),
     ]);
     const state: StoreState = {
       entries: {},
@@ -88,6 +99,7 @@ export async function loadState(): Promise<StoreState | null> {
       lifetime: {},
       statuses: {},
       disabled: d.rows.map((r) => r.feed_id),
+      admins: adm.rows.map((r) => r.email),
     };
     for (const r of e.rows)
       state.entries[r.feed_id] = {
@@ -147,27 +159,49 @@ export async function saveState(state: StoreState) {
       (ph) =>
         `insert into feed_attempts(scope,attempts,lifetime) values ${ph} on conflict(scope) do update set attempts=excluded.attempts,lifetime=excluded.lifetime`,
     );
-    await p.query(`delete from feed_disabled where not (feed_id = any($1::text[]))`, [state.disabled]);
-    await insertRows(
-      p,
-      state.disabled.map((id) => [id]),
-      1,
-      (ph) => `insert into feed_disabled(feed_id) values ${ph} on conflict do nothing`,
-    );
-    for (const [email, m] of Object.entries(state.statuses)) {
-      await p.query(`delete from job_status_user where email=$1 and not (job_id = any($2::text[]))`, [
-        email,
-        Object.keys(m),
-      ]);
-      await insertRows(
-        p,
-        Object.entries(m).map(([id, s]) => [email, id, s.status, new Date(s.at || Date.now()).toISOString()]),
-        4,
-        (ph) =>
-          `insert into job_status_user(email,job_id,status,updated) values ${ph} on conflict(email,job_id) do update set status=excluded.status,updated=excluded.updated`,
-      );
-    }
+    // User-owned rows (statuses, disabled feeds, admins) are written by the
+    // targeted ops below — never bulk-reconciled here, or a stale in-memory
+    // copy from another process would clobber fresh marks/toggles.
   } catch {}
+}
+export async function dbSetJobStatus(email: string, jobId: string, status: string, at: number) {
+  try {
+    const p = await client();
+    await p.query(
+      `insert into job_status_user(email,job_id,status,updated) values($1,$2,$3,$4)
+       on conflict(email,job_id) do update set status=excluded.status,updated=excluded.updated`,
+      [email, jobId, status, new Date(at || Date.now()).toISOString()],
+    );
+  } catch {}
+}
+export async function dbDeleteJobStatus(email: string, jobId: string) {
+  try {
+    const p = await client();
+    await p.query(`delete from job_status_user where email=$1 and job_id=$2`, [email, jobId]);
+  } catch {}
+}
+export async function dbSetFeedDisabled(id: string, on: boolean) {
+  try {
+    const p = await client();
+    if (on) await p.query(`insert into feed_disabled(feed_id) values($1) on conflict do nothing`, [id]);
+    else await p.query(`delete from feed_disabled where feed_id=$1`, [id]);
+  } catch {}
+}
+export async function dbSetAdmin(email: string, on: boolean) {
+  try {
+    const p = await client();
+    if (on) await p.query(`insert into admins(email) values($1) on conflict do nothing`, [email]);
+    else await p.query(`delete from admins where email=$1`, [email]);
+  } catch {}
+}
+export async function dbListProfileEmails(): Promise<string[]> {
+  try {
+    const p = await client();
+    const r = await p.query(`select email from profiles`);
+    return r.rows.map((x: any) => x.email);
+  } catch {
+    return [];
+  }
 }
 export async function dbLoadProfile(email: string): Promise<any | null> {
   try {

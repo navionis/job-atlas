@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { pgEnabled, dbLoadProfile, dbSaveProfile } from "./db";
-import type { Profile, Resume } from "./types";
+import { pgEnabled, dbLoadProfile, dbSaveProfile, dbListProfileEmails } from "./db";
+import type { Profile } from "./types";
 const dir = process.env.DATA_DIR || join(process.cwd(), ".data");
 const file = join(dir, "profiles.json");
 function loadAll(): Record<string, Profile> {
@@ -18,7 +18,7 @@ function saveAll(all: Record<string, Profile>) {
   renameSync(file + ".tmp", file);
 }
 export function emptyProfile(): Profile {
-  return { keywords: [], excluded: [], resumes: [], sourceRank: {} };
+  return { keywords: [], excluded: [], resumes: [], sourceRank: {}, filters: {} };
 }
 export function effectiveKeywords(p: Profile): string[] {
   const ex = new Set((p.excluded || []).map((k) => k.toLowerCase()));
@@ -34,6 +34,10 @@ export async function getProfile(email: string): Promise<Profile> {
     return { ...emptyProfile(), ...(d || {}) };
   }
   return { ...emptyProfile(), ...(loadAll()[key] || {}) };
+}
+export async function listProfileEmails(): Promise<string[]> {
+  if (pgEnabled()) return dbListProfileEmails();
+  return Object.keys(loadAll());
 }
 export async function saveProfile(email: string, p: Profile) {
   const key = email.toLowerCase();
@@ -271,4 +275,3 @@ export function extractKeywords(text: string, max = 30): string[] {
     .map(([w]) => w);
   return [...new Set([...picks, ...rest])].slice(0, max);
 }
-export type { Resume };

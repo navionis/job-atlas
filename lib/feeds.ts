@@ -3,7 +3,17 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { parseScope } from "./geo";
 import { catalog } from "./catalog";
-import { pgEnabled, loadState, saveState, upsertJobs } from "./db";
+import {
+  pgEnabled,
+  loadState,
+  saveState,
+  upsertJobs,
+  dbSetJobStatus,
+  dbDeleteJobStatus,
+  dbSetFeedDisabled,
+  dbSetAdmin,
+} from "./db";
+import { listProfileEmails } from "./profiles";
 import type { StoreState } from "./db";
 import type { Job, JobStatus, Snapshot, SourceStatus } from "./types";
 type Row = Record<string, any>;
@@ -602,10 +612,11 @@ function load(): StoreState {
     }
     d.statuses = nested;
     d.disabled = Array.isArray(d.disabled) ? d.disabled.filter((x: any) => typeof x === "string") : [];
+    d.admins = Array.isArray(d.admins) ? d.admins.filter((x: any) => typeof x === "string") : [];
     return d;
   } catch (e: any) {
     if (e.code !== "ENOENT") throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");
-    return { entries: {}, attempts: {}, lifetime: {}, statuses: {}, disabled: [] };
+    return { entries: {}, attempts: {}, lifetime: {}, statuses: {}, disabled: [], admins: [] };
   }
 }
 const globalState = globalThis as typeof globalThis & {
@@ -635,7 +646,62 @@ export async function setJobStatus(email: string, id: string, status: JobStatus)
   }
   if (status === "listed") delete mine[id];
   else mine[id] = { status, at: Date.now() };
-  await save();
+  if (shared.pg) {
+    if (status === "listed") await dbDeleteJobStatus(email, id);
+    else await dbSetJobStatus(email, id, status, Date.now());
+  } else await save();
+}
+export async function isAdminUser(email: string): Promise<boolean> {
+  await shared.hydrated;
+  const em = email.toLowerCase();
+  const env = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+  if (env.includes(em)) return true;
+  const a = shared.state.admins || [];
+  return a.length === 0 || a.includes(em);
+}
+// First verified Google sign-in claims the admin seat; ADMIN_EMAILS grants extras.
+export async function ensureAdmin(email: string) {
+  await shared.hydrated;
+  const a = (shared.state.admins ??= []);
+  if (a.length === 0 && email) {
+    a.push(email.toLowerCase());
+    if (shared.pg) await dbSetAdmin(email.toLowerCase(), true);
+    else await save();
+  }
+}
+export async function setAdmin(email: string, on: boolean) {
+  await shared.hydrated;
+  const a = (shared.state.admins ??= []);
+  const em = email.toLowerCase();
+  const i = a.indexOf(em);
+  if (on && i < 0) a.push(em);
+  if (!on && i >= 0) a.splice(i, 1);
+  if (shared.pg) await dbSetAdmin(em, on);
+  else await save();
+}
+export async function listUsers(): Promise<{ email: string; admin: boolean; viaEnv: boolean; marked: number }[]> {
+  await shared.hydrated;
+  const env = new Set(
+    (process.env.ADMIN_EMAILS || "")
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const emails = new Set<string>([
+    ...(shared.state.admins || []),
+    ...Object.keys(shared.state.statuses || {}).filter((e) => e !== "*"),
+    ...(await listProfileEmails()),
+    ...env,
+  ]);
+  return [...emails].sort().map((email) => ({
+    email,
+    admin: env.has(email) || (shared.state.admins || []).includes(email),
+    viaEnv: env.has(email),
+    marked: Object.keys(shared.state.statuses[email] || {}).length,
+  }));
 }
 export async function setSourceDisabled(id: string, disabled: boolean) {
   await shared.hydrated;
@@ -646,7 +712,8 @@ export async function setSourceDisabled(id: string, disabled: boolean) {
   if (disabled && i < 0) list.push(id);
   if (!disabled && i >= 0) list.splice(i, 1);
   baseCache = null;
-  await save();
+  if (shared.pg) await dbSetFeedDisabled(id, disabled);
+  else await save();
 }
 async function save() {
   if (shared.pg) await saveState(shared.state);
@@ -748,6 +815,47 @@ async function refresh(f: Feed) {
   await save();
 }
 let baseCache: { snap: Snapshot; feedsKey: string } | null = null;
+/** Refresh only feeds that are due (TTL elapsed), stalest-first, 3 at a time. */
+export async function syncAll(): Promise<{
+  refreshed: string[];
+  failed: { id: string; error: string }[];
+  skipped: number;
+  jobs: number;
+  took: number;
+}> {
+  const t0 = Date.now();
+  await shared.hydrated;
+  const disabled = new Set(shared.state.disabled || []);
+  const due = feeds()
+    .filter((f) => !disabled.has(f.id))
+    .sort((a, b) => (shared.state.entries[a.id]?.next || 0) - (shared.state.entries[b.id]?.next || 0));
+  const refreshed: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  let skipped = 0;
+  for (let i = 0; i < due.length; i += 3) {
+    await Promise.all(
+      due.slice(i, i + 3).map(async (f) => {
+        const e = shared.state.entries[f.id];
+        if (e && e.next > Date.now()) {
+          skipped++;
+          return;
+        }
+        await refresh(f);
+        const after = shared.state.entries[f.id];
+        if (after?.status === "connected") refreshed.push(f.id);
+        else failed.push({ id: f.id, error: after?.detail || "unknown" });
+      }),
+    );
+  }
+  baseCache = null;
+  const jobs = new Set(
+    feeds()
+      .filter((f) => !disabled.has(f.id))
+      .flatMap((f) => shared.state.entries[f.id]?.jobs || [])
+      .map((j) => j.url),
+  ).size;
+  return { refreshed, failed, skipped, jobs, took: Date.now() - t0 };
+}
 async function collect(): Promise<Snapshot> {
   await shared.hydrated;
   const configured = feeds();

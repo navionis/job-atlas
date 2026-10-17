@@ -59,10 +59,14 @@ html.dark {
 }
 body {
   margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   overflow-x: clip;
   background: var(--paper);
   color: var(--ink);
   font-family:
+    var(--font-inter),
     "Inter",
     -apple-system,
     "Segoe UI",
@@ -256,8 +260,10 @@ nav a.active::after {
 }
 main {
   max-width: 1200px;
-  margin: auto;
+  width: 100%;
+  margin: 0 auto;
   padding: 0 32px;
+  flex: 1;
 }
 .hero {
   display: flex;
@@ -463,15 +469,34 @@ main {
   border-right: 0;
 }
 .workspace {
-  display: grid;
-  grid-template-columns: 250px 1fr;
-  gap: 36px;
   padding: 32px 0;
   scroll-margin-top: 76px;
 }
-aside {
-  padding: 0 28px 0 0;
-  border-right: 1px solid var(--line);
+.fp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+}
+.fp-grid .filter-title,
+.fp-grid .note {
+  grid-column: 1/-1;
+}
+.fp-grid label {
+  margin: 12px 0;
+}
+.active-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.af-label {
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 2px;
 }
 .filter-title {
   display: flex;
@@ -529,12 +554,6 @@ select:focus {
 }
 select {
   padding-right: 18px;
-}
-.country-hint {
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--muted);
-  margin-top: -6px;
 }
 .check {
   display: flex;
@@ -821,24 +840,51 @@ html.dark .empty {
   margin-left: 8px;
   color: var(--alert);
 }
-.pagination {
+.pipe {
   display: flex;
-  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 16px 0 14px;
+}
+.pipe-tab {
+  display: inline-flex;
   align-items: center;
-  margin: 24px 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.pagination button {
-  padding: 8px 14px;
-  background: var(--surface);
+  gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 7px 13px;
   font-size: 12px;
+  font-weight: 500;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
 }
-.pagination button:hover:not(:disabled) {
-  border-color: var(--accent);
+.pipe-tab b {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--soft);
+  border-radius: 100px;
+  padding: 1px 8px;
+  min-width: 24px;
+  text-align: center;
+}
+.pipe-tab:hover {
+  color: var(--ink);
+  border-color: var(--accent-line);
+}
+.pipe-tab.on {
   color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-weight: 600;
+}
+.pipe-tab.on b {
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .definitions {
   padding: 18px 0;
@@ -896,6 +942,12 @@ td a {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.src-manage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
 }
 .src-toggle {
   display: inline-flex;
@@ -1161,6 +1213,10 @@ footer {
   border-color: var(--accent-line);
   box-shadow: var(--shadow);
 }
+.google-btn.loading {
+  pointer-events: none;
+  color: var(--muted);
+}
 .login-card small {
   display: block;
   color: var(--muted);
@@ -1316,6 +1372,51 @@ footer {
   border-radius: 4px;
   min-width: 2px;
 }
+.bar-row.co {
+  grid-template-columns: 28px 1fr 44px;
+  grid-template-areas: "ico name num" "ico track num";
+  row-gap: 4px;
+  margin-bottom: 12px;
+}
+.bar-row.co .co-ico {
+  grid-area: ico;
+  width: 26px;
+  height: 26px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.bar-row.co .name {
+  grid-area: name;
+  font-weight: 600;
+  color: var(--ink);
+}
+.bar-row.co .co-rank {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  opacity: 0.7;
+  margin-right: 5px;
+}
+.bar-row.co .track {
+  grid-area: track;
+  height: 4px;
+}
+.bar-row.co .track .fill {
+  height: 4px;
+}
+.bar-row.co .num {
+  grid-area: num;
+  align-self: center;
+}
 .mini {
   display: flex;
   align-items: center;
@@ -1435,11 +1536,6 @@ details a svg,
 td a svg {
   vertical-align: -1px;
 }
-.pagination button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 .location svg {
   color: var(--muted);
   margin-right: 2px;
@@ -1464,10 +1560,6 @@ td a svg {
   }
   .hero-visual {
     display: none;
-  }
-  .workspace {
-    grid-template-columns: 225px 1fr;
-    gap: 24px;
   }
   .last {
     display: none;
@@ -1527,26 +1619,10 @@ td a svg {
     font-size: 16px;
   }
   .workspace {
-    display: block;
     padding-top: 20px;
   }
-  aside {
-    border: 0;
-    padding: 0 0 20px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 16px;
-  }
-  .filter-title {
-    grid-column: 1/-1;
-    margin: 0;
-  }
-  .country-hint,
-  .note {
-    grid-column: 1/-1;
-  }
-  .note {
-    margin-top: 8px;
+  .fp-grid {
+    grid-template-columns: 1fr;
   }
   .check {
     margin: 8px 0;
@@ -1597,6 +1673,9 @@ td a svg {
   }
   .bar-row {
     grid-template-columns: 110px 1fr 40px;
+  }
+  .bar-row.co {
+    grid-template-columns: 26px 1fr 40px;
   }
 }
 .pf-wrap {
@@ -1657,6 +1736,12 @@ td a svg {
   right: 0;
   height: 3px;
   background: var(--grad);
+}
+.pf-card#filters {
+  overflow: visible;
+}
+.pf-card#filters:before {
+  border-radius: 12px 12px 0 0;
 }
 .pf-card-head {
   display: flex;
@@ -1735,6 +1820,44 @@ td a svg {
 .resume-del:hover {
   color: #dc2626;
   border-color: #fecaca;
+}
+.resume-del.edit:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+:root {
+  --normal-bg: var(--surface);
+  --normal-text: var(--ink);
+  --normal-border: var(--line);
+  --success-bg: var(--surface);
+  --success-text: var(--ink);
+  --success-border: var(--line);
+  --error-bg: var(--surface);
+  --error-text: var(--ink);
+  --error-border: var(--line);
+}
+[data-sonner-toaster] {
+  font-family: inherit;
+}
+.alias-edit {
+  display: flex;
+  gap: 6px;
+  max-width: 300px;
+}
+.alias-edit input {
+  flex: 1;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  padding: 4px 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--ink);
+  margin-top: 0;
+  width: auto;
+}
+.alias-edit .ghost {
+  padding: 4px 9px;
 }
 .pf-empty {
   text-align: center;
@@ -1817,20 +1940,14 @@ td a svg {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
-.rank-select {
-  display: inline-block;
-  width: auto;
-  margin-top: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 24px 6px 8px;
-  font-size: 12px;
-  background: var(--surface);
-  color: var(--ink);
-  flex-shrink: 0;
+.resume-row.off .resume-meta,
+.resume-row.off .rank-badge {
+  opacity: 0.45;
 }
-.rank-select:focus {
-  border-color: var(--accent);
+.section-title h2 svg {
+  vertical-align: -3px;
+  color: var(--accent);
+  margin-right: 4px;
 }
 .conn {
   white-space: nowrap;
@@ -1846,10 +1963,10 @@ td a svg {
 .primary,
 .ghost,
 .job-actions button,
-.pagination button,
+.pipe-tab,
+.m-tab,
 .theme-toggle,
-.google-btn,
-.rank-select {
+.google-btn {
   transition:
     transform 0.15s ease,
     box-shadow 0.15s ease,
@@ -1863,7 +1980,7 @@ td a svg {
 .primary:active,
 .ghost:active,
 .job-actions button:active,
-.pagination button:active:not(:disabled) {
+.pipe-tab:active {
   transform: scale(0.97);
 }
 article.card-applied,
@@ -1926,12 +2043,6 @@ article {
 .act-spin {
   align-self: center;
   margin-left: auto;
-}
-.rank-spin,
-.rank-spin-slot {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
 }
 .job-actions {
   align-items: center;
@@ -2179,10 +2290,6 @@ article {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-}
-.m-status {
-  flex-shrink: 0;
-  min-width: 170px;
 }
 .m-more {
   display: flex;

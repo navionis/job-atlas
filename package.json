@@ -1,12 +1,7 @@
 {
   "name": "job-atlas",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "lib": "lib",
-    "test": "tests"
-  },
+  "description": "Job Atlas — profile-aware job discovery across public feeds",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,11 +11,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "favicons": "node scripts/fetch-favicons.mjs"
+    "favicons": "node scripts/fetch-favicons.mjs",
+    "sync:jobs": "node --import tsx scripts/sync-jobs.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "module",
   "dependencies": {
     "lucide-react": "^1.58.0",
@@ -32,6 +25,7 @@
     "pg": "^8.23.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "sonner": "^2.0.8",
     "world-countries": "^5.1.0"
   },
   "devDependencies": {

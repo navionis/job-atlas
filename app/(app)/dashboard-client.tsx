@@ -149,9 +149,13 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
           <FadeIn className="panel" delay={0.65}>
             <h3>Top companies</h3>
             {compRows.length ? (
-              compRows.map(([c, n]) => (
-                <div className="bar-row" key={c}>
-                  <span className="name">{c}</span>
+              compRows.map(([c, n], i) => (
+                <div className="bar-row co" key={c}>
+                  <span className="co-ico">{c.slice(0, 2).toUpperCase()}</span>
+                  <span className="name">
+                    <i className="co-rank">{String(i + 1).padStart(2, "0")}</i>
+                    {c}
+                  </span>
                   <div className="track">
                     <div className="fill" style={{ width: `${(n / maxComp) * 100}%` }} />
                   </div>
