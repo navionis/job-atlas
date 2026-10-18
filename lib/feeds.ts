@@ -201,6 +201,56 @@ function sailonchainJobs(html: string): Job[] {
   }
   return out;
 }
+const HN_TITLEISH =
+  /\b(engineer|developer|devops|manager|designer|architect|scientist|analyst|consultant|programmer|specialist|director|founder|intern|cto|lead|head of|marketing|writer|recruiter|qa|sdet|sre|platform|product|data|security|support|sales|growth|operations)\b/i;
+const HN_PLACEISH = /\b(remote|on-?site|hybrid|location|time\s?zones?|worldwide)\b/i;
+const HN_URLISH = /^(https?:|\S+\.(com|io|dev|ai|co|fm|xyz|net|org|us|app|gg|so)\b)/i;
+function hnhiringJobs(html: string): Job[] {
+  const out: Job[] = [];
+  for (const m of html.matchAll(
+    /<li class="job[^"]*"[\s\S]*?<div class="body">([\s\S]*?)<\/div>\s*<\/div>\s*<\/li>/g,
+  )) {
+    const li = m[0],
+      body = m[1];
+    const head = plain(body.split(/<p[ >]|<br/i)[0]);
+    const segs = head
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const company = (segs[0] || "")
+      .replace(/\(\s*https?:[^)]*\)/g, "")
+      .replace(/^(company)\s*:\s*/i, "")
+      .trim();
+    const rest = /^location\s*:/i.test(segs[0] || "") ? segs : segs.slice(1);
+    const locSeg = rest.find((s) => HN_PLACEISH.test(s)) || "";
+    const title = (
+      rest.find((s) => HN_TITLEISH.test(s)) ||
+      rest.find((s) => s !== locSeg && !HN_URLISH.test(s)) ||
+      ""
+    ).slice(0, 140);
+    const tags = rest.filter((s) => s !== title && s !== locSeg && !HN_URLISH.test(s)).slice(0, 6);
+    const id = createHash("sha1")
+      .update(head + "|" + body)
+      .digest("hex")
+      .slice(0, 12);
+    const url = (body.match(/href="(https?:\/\/(?!news\.ycombinator\.com)[^"]+)"/) || [])[1];
+    out.push(
+      job("hnhiring", {
+        id,
+        title: title || company,
+        company,
+        url: url || "https://hnhiring.com/locations/remote#" + id,
+        location: locSeg,
+        eligibility: locSeg,
+        remote: /remote/i.test(locSeg || head),
+        posted: (li.match(/class="[^"]*type-info[^"]*"[^>]*>([^<]+)</) || [])[1],
+        tags,
+        summary: plain(body),
+      }),
+    );
+  }
+  return out;
+}
 export function feeds(): Feed[] {
   const out: Feed[] = [
     {
@@ -350,6 +400,14 @@ export function feeds(): Feed[] {
       ttl: 6 * H,
       html: true,
       map: sailonchainJobs,
+    },
+    {
+      id: "hnhiring",
+      provider: "hnhiring",
+      url: "https://hnhiring.com/locations/remote",
+      ttl: 6 * H,
+      html: true,
+      map: hnhiringJobs,
     },
   ];
   if (process.env.MUSE_API_KEY)

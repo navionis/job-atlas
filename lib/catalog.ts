@@ -280,4 +280,14 @@ export const catalog = [
     url: "https://sailonchain.com/jobs/location/remote",
     implemented: true,
   },
+  {
+    id: "hnhiring",
+    name: "HN Hiring",
+    access: "Public listing page (HTML)",
+    limit: "No published quota; conservative refresh",
+    cadence: "6 hours (app policy)",
+    coverage: "Remote roles · monthly 'Who is hiring' thread",
+    url: "https://hnhiring.com/locations/remote",
+    implemented: true,
+  },
 ];

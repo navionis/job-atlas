@@ -28,7 +28,6 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
   const maxComp = Math.max(1, ...compRows.map((r) => r[1]));
   return (
     <>
-    <Spinner size={48}/>
       <section className="hero">
         <FadeIn className="hero-copy">
           <div className="eyebrow">GLOBAL JOB DISCOVERY</div>
@@ -39,6 +38,7 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
           </h1>
           <p>Explore work by country, region, and the places employers actually include in their listings.</p>
           <div className="hero-cta">
+            <Spinner size={48}/>
             <Link className="primary" href="/jobs">
               Explore listings
             </Link>

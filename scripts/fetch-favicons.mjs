@@ -32,6 +32,7 @@ const SOURCES = {
   raretalent: "raretalent.xyz",
   findweb3: "findweb3.com",
   sailonchain: "sailonchain.com",
+  hnhiring: "hnhiring.com",
 };
 
 const out = join(process.cwd(), "public", "favicons");

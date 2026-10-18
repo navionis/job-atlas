@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { feeds, retryDelay } from "../lib/feeds";
-test("all 19 adapters normalize a documented response shape", () => {
+test("all 20 adapters normalize a documented response shape", () => {
   Object.assign(process.env, {
     MUSE_API_KEY: "fixture",
     GREENHOUSE_BOARDS: "fixture",
@@ -121,10 +121,11 @@ test("all 19 adapters normalize a documented response shape", () => {
     raretalent: rare,
     findweb3: next,
     sailonchain: sail,
+    hnhiring: `<ul class="jobs"><li class="job  "><div class="container"><div class="user green"><a href="https://news.ycombinator.com/user?id=u">u</a><span class="gray right type-info">2026-10-14</span></div><div class="body">Company | Engineer | Ethiopia (remote available)<p>Role</p><a href="https://example.org/job/1">apply</a></div></div></li></ul>`,
   };
   const adapters = feeds();
-  assert.equal(adapters.length, 19);
-  const eligibilitySupplied = ["remotive", "cryptocurrencyjobs", "web3career", "raretalent", "sailonchain"];
+  assert.equal(adapters.length, 20);
+  const eligibilitySupplied = ["remotive", "cryptocurrencyjobs", "web3career", "raretalent", "sailonchain", "hnhiring"];
   for (const f of adapters) {
     const normalized = f.map(fixture[f.provider]);
     assert.equal(normalized.length, 1, f.provider);
