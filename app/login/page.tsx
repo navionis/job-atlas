@@ -68,12 +68,12 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
       <div className="login-side">
         <div className="login-card">
           <div className="login-tabs">
-            <a className={signup ? "" : "active"} href="/login">
+            <Link className={signup ? "" : "active"} href="/login">
               Sign in
-            </a>
-            <a className={signup ? "active" : ""} href="/login?mode=signup">
+            </Link>
+            <Link className={signup ? "active" : ""} href="/login?mode=signup">
               Sign up
-            </a>
+            </Link>
           </div>
           <h2>{signup ? "Create your account" : "Welcome back"}</h2>
           <p>

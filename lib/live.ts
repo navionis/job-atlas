@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import type { JobStatus, Snapshot } from "./types";
 
 type Snap = { data: Snapshot; loading: boolean; error: string; connection: string; touched: boolean };
@@ -63,14 +64,14 @@ export function useLiveData(initial: Snapshot): Snap {
   return { ...s, data, loading };
 }
 export function mark(id: string, status: JobStatus): Promise<void> {
-  const cur = snap.data.statuses || {};
+  const prev = (snap.data.statuses || {})[id];
   emit({
     data: {
       ...snap.data,
       statuses:
         status === "listed"
-          ? Object.fromEntries(Object.entries(cur).filter(([k]) => k !== id))
-          : { ...cur, [id]: { status, at: Date.now() } },
+          ? Object.fromEntries(Object.entries(snap.data.statuses || {}).filter(([k]) => k !== id))
+          : { ...(snap.data.statuses || {}), [id]: { status, at: Date.now() } },
     },
   });
   return fetch("/api/status", {
@@ -78,8 +79,16 @@ export function mark(id: string, status: JobStatus): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, status }),
   })
-    .then(() => {})
-    .catch(() => {});
+    .then((r) => {
+      if (!r.ok) throw Error();
+    })
+    .catch(() => {
+      const back = { ...(snap.data.statuses || {}) };
+      if (prev) back[id] = prev;
+      else delete back[id];
+      emit({ data: { ...snap.data, statuses: back } });
+      toast.error("Could not update status — change reverted");
+    });
 }
 
 let profileMeta: ProfileMeta = { keywords: [], sourceRank: {} };

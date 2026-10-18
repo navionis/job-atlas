@@ -129,6 +129,7 @@ header:before {
   left: 0;
   right: 0;
   height: 64px;
+  background: var(--surface);
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -618,6 +619,20 @@ select {
   font-size: 8px;
   letter-spacing: 1px;
   color: #94a3b8;
+}
+.search-clear {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.search-clear:hover {
+  color: var(--ink);
 }
 .section-title {
   display: flex;
@@ -2197,6 +2212,16 @@ article {
 * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 ::-webkit-scrollbar {
   width: 9px;

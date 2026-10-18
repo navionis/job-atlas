@@ -4,13 +4,13 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, MapPin, ArrowUpRight, Compass, FileText, User } from "lucide-react";
+import { Search, MapPin, ArrowUpRight, Compass, FileText, User, X } from "lucide-react";
 import { Spinner } from "../../../components/loader";
 import { Favicon } from "../../../components/favicon";
 import { EASE } from "../../../components/motion";
 import { countries, scopeMatches } from "../../../lib/geo";
 import { catalog } from "../../../lib/catalog";
-import { useLiveData, useLiveProfileMeta, mark } from "../../../lib/live";
+import { useLiveData, useLiveProfileMeta, mark, refresh } from "../../../lib/live";
 import { rankJobs, type JobMatch } from "../../../lib/match";
 import type { Snapshot, DiscoverFilters } from "../../../lib/types";
 
@@ -103,7 +103,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     return () => obs.disconnect();
   }, [matched, shown]);
   useEffect(() => {
-    if (error) toast.error(error, { action: { label: "Retry", onClick: () => window.location.reload() } });
+    if (error) toast.error(error, { action: { label: "Retry", onClick: () => void refresh() } });
   }, [error]);
   const didMount = useRef(false);
   useEffect(() => {
@@ -208,13 +208,23 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             placeholder="Job title, company, or keyword"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query) setQuery("");
+            }}
           />
+          {query && (
+            <button className="search-clear" onClick={() => setQuery("")} aria-label="Clear search">
+              <X size={14} />
+            </button>
+          )}
           <span className="key">SEARCH</span>
         </div>
         <div className="pipe" role="tablist" aria-label="Pipeline stage">
           {STAGES.map(([v, l]) => (
             <button
               key={v}
+              role="tab"
+              aria-selected={statusFilter === v}
               className={"pipe-tab" + (statusFilter === v ? " on" : "")}
               onClick={() => setStatusFilter(v)}
             >
@@ -222,20 +232,41 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             </button>
           ))}
         </div>
-        <div className="m-tabs">
-          <button className={"m-tab" + (tab === "profile" ? " on" : "")} onClick={() => setTab("profile")}>
+        <div className="m-tabs" role="tablist" aria-label="Match source">
+          <button
+            role="tab"
+            aria-selected={tab === "profile"}
+            className={"m-tab" + (tab === "profile" ? " on" : "")}
+            onClick={() => setTab("profile")}
+          >
             <User size={13} /> Profile
           </button>
-          <button className={"m-tab" + (tab === "all" ? " on" : "")} onClick={() => setTab("all")}>
+          <button
+            role="tab"
+            aria-selected={tab === "all"}
+            className={"m-tab" + (tab === "all" ? " on" : "")}
+            onClick={() => setTab("all")}
+          >
             All listings
           </button>
           {meta.resumes.map((r) => (
-            <button key={r.id} className={"m-tab" + (tab === r.id ? " on" : "")} onClick={() => setTab(r.id)}>
+            <button
+              key={r.id}
+              role="tab"
+              aria-selected={tab === r.id}
+              className={"m-tab" + (tab === r.id ? " on" : "")}
+              onClick={() => setTab(r.id)}
+            >
               <FileText size={13} /> {r.alias || r.name}
             </button>
           ))}
           {meta.manual.length > 0 && (
-            <button className={"m-tab" + (tab === "manual" ? " on" : "")} onClick={() => setTab("manual")}>
+            <button
+              role="tab"
+              aria-selected={tab === "manual"}
+              className={"m-tab" + (tab === "manual" ? " on" : "")}
+              onClick={() => setTab("manual")}
+            >
               Manual keywords
             </button>
           )}
@@ -293,7 +324,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
         {!loading && data.sources.some((s) => ["unavailable", "stale"].includes(s.status)) && (
           <div className="alert">
             Some feeds are unavailable or stale.{" "}
-            <Link href="/admin" className="alert-link">
+            <Link href="/sources" className="alert-link">
               View source status <ArrowUpRight size={11} />
             </Link>
           </div>
@@ -334,7 +365,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
               <>
                 <h3>No listings in the loaded feeds.</h3>
                 <p>The connected sources returned no jobs yet — check their status or connect more.</p>
-                <Link className="primary" href="/admin">
+                <Link className="primary" href="/sources">
                   Check source coverage <ArrowUpRight size={13} />
                 </Link>
               </>
@@ -348,7 +379,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                 <Link className="primary" href="/profile#filters">
                   Adjust search preferences <ArrowUpRight size={13} />
                 </Link>
-                <Link className="text-button" href="/admin">
+                <Link className="text-button" href="/sources">
                   Check coverage &amp; connect more sources
                 </Link>
               </>

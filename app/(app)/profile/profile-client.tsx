@@ -54,6 +54,7 @@ function KwAdd({
     <div className="kw-add">
       <input
         ref={inputRef}
+        aria-label={placeholder}
         placeholder={placeholder}
         value={v}
         onChange={(e) => setV(e.target.value)}
@@ -74,7 +75,8 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
     [kw, setKw] = useState(""),
     [renaming, setRenaming] = useState(""),
     [aliasVal, setAliasVal] = useState(""),
-    [deleting, setDeleting] = useState("");
+    [deleting, setDeleting] = useState(""),
+    [confirming, setConfirming] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const kwRef = useRef<HTMLInputElement>(null);
   const apply = (d: Partial<ProfileData>) => {
@@ -101,6 +103,7 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
   };
   const removeResume = async (id: string) => {
     if (deleting) return;
+    setConfirming("");
     setDeleting(id);
     try {
       const r = await fetch("/api/profile/resume?id=" + encodeURIComponent(id), { method: "DELETE" });
@@ -281,14 +284,35 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                 >
                   <Pencil size={13} />
                 </button>
-                <button
-                  className="resume-del"
-                  disabled={busy || !!deleting}
-                  onClick={() => void removeResume(r.id)}
-                  title="Delete resume"
-                >
-                  {deleting === r.id ? <Spinner size={14} /> : <Trash2 size={14} />}
-                </button>
+                {confirming === r.id ? (
+                  <>
+                    <button
+                      className="src-toggle"
+                      disabled={busy || !!deleting}
+                      onClick={() => void removeResume(r.id)}
+                    >
+                      {deleting === r.id ? <Spinner size={11} /> : null}
+                      Confirm delete
+                    </button>
+                    <button
+                      className="resume-del edit"
+                      disabled={busy || !!deleting}
+                      onClick={() => setConfirming("")}
+                      title="Cancel"
+                    >
+                      <X size={13} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="resume-del"
+                    disabled={busy || !!deleting}
+                    onClick={() => setConfirming(r.id)}
+                    title="Delete resume"
+                  >
+                    {deleting === r.id ? <Spinner size={14} /> : <Trash2 size={14} />}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -303,8 +327,9 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
           </span>
         </div>
         <p className="pf-hint">
-          Keywords are grouped by the resume they came from, plus a manual group. They drive the default search in
-          Discover jobs — typing in the search box overrides them. Remove a keyword with ×, or add to a group below it.
+          Keywords are grouped by the resume they came from, plus a manual group. In Discover jobs each resume and the
+          manual group get their own ranked tab — the Profile and All listings tabs never use them. Remove a keyword
+          with ×, or add to a group below it.
         </p>
         {pf.resumes.length === 0 && pf.manual.length === 0 && (
           <p className="pf-hint">No keywords yet — upload a resume or add manual ones below.</p>

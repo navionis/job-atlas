@@ -84,7 +84,7 @@ export default function SourcesClient({ initial, canAdmin }: { initial: Snapshot
           {rows.length - configured.length} configured-but-idle slots · {research.length} catalog entries under research
         </span>
         {canAdmin && (
-          <Link className="src-link" href="/admin">
+          <Link className="src-link" href="/admin/sources">
             <Settings2 size={13} /> Manage feeds in Admin
           </Link>
         )}
