@@ -1,13 +1,12 @@
 "use client";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Pause, Play, ArrowUpDown, ShieldCheck, ArrowUpRight } from "lucide-react";
+import { Pause, Play, ArrowUpRight } from "lucide-react";
 import { catalog } from "../../../../lib/catalog";
 import { Favicon } from "../../../../components/favicon";
 import { Spinner } from "../../../../components/loader";
 import { Select } from "../../../../components/select";
 import { refresh, useLiveData } from "../../../../lib/live";
-import AdminTabs from "../admin-tabs";
 import type { Snapshot } from "../../../../lib/types";
 
 const RANKS = [5, 4, 3, 2, 1].map((n) => ({
@@ -80,23 +79,11 @@ export default function SourcesClient({
   });
   return (
     <>
-      <div className="section-title">
-        <div>
-          <h2>
-            <ShieldCheck size={17} /> Admin — Sources
-          </h2>
-          <p>Feed catalog, publish limits, refresh policy, and per-source controls.</p>
-        </div>
-        <span className="pill">
-          {saving ? <Spinner size={12} /> : <ArrowUpDown size={11} />}
-          {saving ? "saving" : `${configured.length} feeds configured`}
-        </span>
-      </div>
-      <AdminTabs />
       <div className="pf-card">
         <p className="pf-hint">
           Enable or disable feeds and set fetch priority per provider. Disabled feeds stop fetching and hide cached
-          listings. Catalog entries marked research-only have no active connector.
+          listings. Catalog entries marked research-only have no active connector.{" "}
+          {saving ? "Saving…" : `${configured.length} feeds configured.`}
         </p>
         <div className="table-scroll">
           <table>

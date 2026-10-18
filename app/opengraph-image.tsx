@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { AtlasMark } from "../components/atlas-mark";
 
 export const alt = "Job Atlas — Work without borders";
 export const size = { width: 1200, height: 630 };
@@ -31,7 +32,7 @@ export default function OgImage() {
             justifyContent: "center",
           }}
         >
-          <div style={{ width: 26, height: 26, background: "#fff", transform: "rotate(45deg)", borderRadius: 6 }} />
+          <AtlasMark size={42} color="#fff" />
         </div>
         <div style={{ fontSize: 44, fontWeight: 800, letterSpacing: -1, display: "flex" }}>
           job atlas<span style={{ color: "#3b82f6" }}>.</span>

@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { AtlasMark } from "../components/atlas-mark";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
@@ -15,7 +16,7 @@ export default function AppleIcon() {
         justifyContent: "center",
       }}
     >
-      <div style={{ width: 72, height: 72, background: "#fff", transform: "rotate(45deg)", borderRadius: 14 }} />
+      <AtlasMark size={120} color="#fff" />
     </div>,
     size,
   );

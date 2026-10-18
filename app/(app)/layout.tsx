@@ -11,8 +11,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <SiteHeader me={me} admin={await isAdminUser(me.email)} />
-      <main>{children}</main>
-      <SiteFooter />
+      <div className="scroll-region">
+        <main>{children}</main>
+        <SiteFooter />
+      </div>
       <ScrollTop />
     </>
   );

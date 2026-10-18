@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { Globe, Sun, Moon, ArrowUp } from "lucide-react";
+import { Sun, Moon, ArrowUp, LayoutDashboard, Compass, Rss, UserRound, ShieldCheck } from "lucide-react";
+import { AtlasMark } from "./atlas-mark";
 import { useSnapshot } from "../lib/live";
 import { EASE } from "./motion";
 import type { Session } from "../lib/auth";
@@ -13,6 +14,13 @@ const LINKS: [string, string][] = [
   ["/jobs", "Discover jobs"],
   ["/sources", "Sources"],
   ["/profile", "Profile"],
+];
+
+const MNAV = [
+  { href: "/", label: "Home", Icon: LayoutDashboard },
+  { href: "/jobs", label: "Discover", Icon: Compass },
+  { href: "/sources", label: "Sources", Icon: Rss },
+  { href: "/profile", label: "Profile", Icon: UserRound },
 ];
 
 export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean }) {
@@ -75,7 +83,7 @@ export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean
     <header className={scrolled ? "scrolled" : ""}>
       <Link className="brand" href="/">
         <span className="brand-mark">
-          <Globe size={15} strokeWidth={2.2} />
+          <AtlasMark size={16} />
         </span>
         <span>
           job atlas<span className="brand-dot">.</span>
@@ -132,6 +140,19 @@ export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean
           {dark ? <Sun size={15} /> : <Moon size={15} />}
         </button>
       </span>
+      <div className="mnav" role="navigation" aria-label="Primary">
+        {[...MNAV, ...(admin ? [{ href: "/admin", label: "Admin", Icon: ShieldCheck }] : [])].map(
+          ({ href, label, Icon }) => {
+            const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+            return (
+              <Link key={href} href={href} className={active ? "on" : ""} aria-current={active ? "page" : undefined}>
+                <Icon size={19} strokeWidth={active ? 2.2 : 1.8} />
+                <span>{label}</span>
+              </Link>
+            );
+          },
+        )}
+      </div>
     </header>
   );
 }
@@ -142,7 +163,9 @@ export function SiteFooter() {
       <div className="foot-inner">
         <div className="foot-brand">
           <Link href="/" className="foot-logo">
-            <span className="brand-mark">◇</span>
+            <span className="brand-mark">
+              <AtlasMark size={13} />
+            </span>
             job atlas.
           </Link>
           <small>Find work. Know the boundaries.</small>
@@ -166,22 +189,35 @@ export function SiteFooter() {
 export function ScrollTop() {
   const [show, setShow] = useState(false);
   useEffect(() => {
+    const region = document.querySelector<HTMLElement>(".scroll-region");
     let tick = false;
     const onScroll = () => {
       if (tick) return;
       tick = true;
       requestAnimationFrame(() => {
-        setShow(window.scrollY > 600);
+        setShow((region?.scrollTop || window.scrollY) > 600);
         tick = false;
       });
     };
     window.addEventListener("scroll", onScroll, { passive: true });
+    region?.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      region?.removeEventListener("scroll", onScroll);
+    };
   }, []);
   if (!show) return null;
   return (
-    <button className="to-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top">
+    <button
+      className="to-top"
+      onClick={() => {
+        const region = document.querySelector<HTMLElement>(".scroll-region");
+        if (region && region.scrollTop > 0) region.scrollTo({ top: 0, behavior: "smooth" });
+        else window.scrollTo({ top: 0, behavior: "smooth" });
+      }}
+      aria-label="Back to top"
+    >
       <ArrowUp size={16} />
     </button>
   );

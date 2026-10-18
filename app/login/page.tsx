@@ -5,7 +5,8 @@ export const metadata = {
   alternates: { canonical: "/login" },
 };
 import Link from "next/link";
-import { Globe, Check } from "lucide-react";
+import { Check } from "lucide-react";
+import { AtlasMark } from "../../components/atlas-mark";
 import GoogleButton from "./google-button";
 export default async function Login({ searchParams }: { searchParams: Promise<{ error?: string; mode?: string }> }) {
   const { error, mode } = await searchParams;
@@ -15,7 +16,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
       <aside className="login-panel">
         <Link className="brand" href="/">
           <span className="brand-mark">
-            <Globe size={15} strokeWidth={2.2} />
+            <AtlasMark size={16} />
           </span>
           <span>
             job atlas<span className="brand-dot">.</span>

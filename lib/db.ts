@@ -180,6 +180,23 @@ export async function dbDeleteJobStatus(email: string, jobId: string) {
     await p.query(`delete from job_status_user where email=$1 and job_id=$2`, [email, jobId]);
   } catch {}
 }
+export async function dbListJobStatuses(email: string): Promise<Record<string, StatusEntry> | null> {
+  try {
+    const p = await client();
+    const { rows } = await p.query(
+      `select job_id,status,updated from job_status_user where email=$1 or email='*'
+       order by case when email='*' then 0 else 1 end`,
+      [email],
+    );
+    const out: Record<string, StatusEntry> = {};
+    for (const r of rows)
+      if (["listed", "applied", "cancelled", "ignored"].includes(r.status))
+        out[r.job_id] = { status: r.status, at: new Date(r.updated || 0).getTime() || 0 };
+    return out;
+  } catch {
+    return null;
+  }
+}
 export async function dbSetFeedDisabled(id: string, on: boolean) {
   try {
     const p = await client();

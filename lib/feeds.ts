@@ -10,6 +10,7 @@ import {
   upsertJobs,
   dbSetJobStatus,
   dbDeleteJobStatus,
+  dbListJobStatuses,
   dbSetFeedDisabled,
   dbSetAdmin,
 } from "./db";
@@ -923,5 +924,8 @@ export async function snapshot(email = ""): Promise<Snapshot> {
       shared.pending = undefined;
     });
   const base = await shared.pending;
-  return { ...base, statuses: statusesFor(email) };
+  // Fresh per-user read — other processes (deployed app, sync script) may have
+  // written marks since this process hydrated its in-memory mirror.
+  const fresh = shared.pg && email ? await dbListJobStatuses(email) : null;
+  return { ...base, statuses: fresh ?? statusesFor(email) };
 }

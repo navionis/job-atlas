@@ -1,9 +1,8 @@
 "use client";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ShieldCheck, UserPlus, UserMinus } from "lucide-react";
+import { UserPlus, UserMinus } from "lucide-react";
 import { Spinner } from "../../../../components/loader";
-import AdminTabs from "../admin-tabs";
 
 type AdminUser = { email: string; admin: boolean; viaEnv: boolean; marked: number };
 
@@ -28,20 +27,10 @@ export default function UsersClient({ users: initialUsers, me }: { users: AdminU
   };
   return (
     <>
-      <div className="section-title">
-        <div>
-          <h2>
-            <ShieldCheck size={17} /> Admin — Users
-          </h2>
-          <p>Admin seat management for signed-in accounts.</p>
-        </div>
-        <span className="pill">{users.length} users</span>
-      </div>
-      <AdminTabs />
       <div className="pf-card">
         <p className="pf-hint">
           Signed-in Google accounts. The first verified sign-in holds the admin seat; grant or revoke additional admins
-          here. Env-listed admins can only be removed via ADMIN_EMAILS.
+          here. Env-listed admins can only be removed via ADMIN_EMAILS. {users.length} users.
         </p>
         <div className="pf-resumes">
           {users.map((u) => (

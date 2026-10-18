@@ -8,6 +8,7 @@ import { catalog } from "../../lib/catalog";
 import { useLiveData } from "../../lib/live";
 import { Favicon } from "../../components/favicon";
 import type { JobStatus, Snapshot } from "../../lib/types";
+import { Spinner } from "../../components/loader";
 
 export default function DashboardClient({ initial }: { initial: Snapshot }) {
   const { data } = useLiveData(initial);
@@ -27,6 +28,7 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
   const maxComp = Math.max(1, ...compRows.map((r) => r[1]));
   return (
     <>
+    <Spinner size={48}/>
       <section className="hero">
         <FadeIn className="hero-copy">
           <div className="eyebrow">GLOBAL JOB DISCOVERY</div>
