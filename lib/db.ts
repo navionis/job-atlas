@@ -180,6 +180,29 @@ export async function dbDeleteJobStatus(email: string, jobId: string) {
     await p.query(`delete from job_status_user where email=$1 and job_id=$2`, [email, jobId]);
   } catch {}
 }
+export async function dbSaveFeed(
+  id: string,
+  e: { jobs: Job[]; next: number; fetched: number; status: string; detail: string },
+) {
+  try {
+    const p = await client();
+    await p.query(
+      `insert into feed_state(feed_id,jobs,next_fetch,fetched_at,status,detail) values($1,$2,$3,$4,$5,$6)
+       on conflict(feed_id) do update set jobs=excluded.jobs,next_fetch=excluded.next_fetch,fetched_at=excluded.fetched_at,status=excluded.status,detail=excluded.detail`,
+      [id, JSON.stringify(e.jobs), e.next, e.fetched, e.status, e.detail],
+    );
+  } catch {}
+}
+export async function dbSaveAttempts(scope: string, attempts: number[], lifetime: number) {
+  try {
+    const p = await client();
+    await p.query(
+      `insert into feed_attempts(scope,attempts,lifetime) values($1,$2,$3)
+       on conflict(scope) do update set attempts=excluded.attempts,lifetime=excluded.lifetime`,
+      [scope, JSON.stringify(attempts), lifetime],
+    );
+  } catch {}
+}
 export async function dbListJobStatuses(email: string): Promise<Record<string, StatusEntry> | null> {
   try {
     const p = await client();

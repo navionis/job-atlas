@@ -87,7 +87,23 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const setDays = (v: string) => setParams({ days: v || null }, true);
   const [marking, setMarking] = useState<string[]>([]),
     [shown, setShown] = useState(PAGE);
-  const moreRef = useRef<HTMLDivElement>(null);
+  const moreObs = useRef<IntersectionObserver | null>(null);
+  // Callback ref, not a useEffect — the sentinel mounts late whenever `total`
+  // grows (SSE/poll) while `shown`/`matched` stay put, and deps-based effects
+  // would never attach the observer.
+  const moreRef = useCallback((el: HTMLDivElement | null) => {
+    moreObs.current?.disconnect();
+    moreObs.current = null;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (es) => {
+        if (es[0].isIntersecting) setShown((n) => n + PAGE);
+      },
+      { rootMargin: "600px" },
+    );
+    obs.observe(el);
+    moreObs.current = obs;
+  }, []);
   const matched = tab !== "all" && tab !== "profile";
   const doMark = (id: string, st: "listed" | "applied" | "cancelled" | "ignored") => {
     setMarking((m) => [...m, id]);
@@ -112,18 +128,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     setPrevFilterKey(filterKey);
     setShown(PAGE);
   }
-  useEffect(() => {
-    const el = moreRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      (es) => {
-        if (es[0].isIntersecting) setShown((n) => n + PAGE);
-      },
-      { rootMargin: "600px" },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [matched, shown]);
+  useEffect(() => () => moreObs.current?.disconnect(), []);
   useEffect(() => {
     if (error) toast.error(error, { action: { label: "Retry", onClick: () => void refresh() } });
   }, [error]);
@@ -181,16 +186,15 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           if (tab === "all") return true;
           if (source && j.source !== source) return false;
           if ((remote === "remote" && !j.remote) || (remote === "onsite" && j.remote)) return false;
-          if (remoteTo) {
-            if (!j.remote || !scopeMatches(j.eligibility, remoteTo)) return false;
-            if (j.scope.countries.includes(remoteTo) && !j.scope.excluded.includes(remoteTo)) return false;
-          }
+          if (remoteTo && (!j.remote || !scopeMatches(j.eligibility, remoteTo))) return false;
           if (sched) {
             const t = `${j.title} ${j.tags.join(" ")} ${j.summary}`.toLowerCase();
             if (!new RegExp(sched + "[\\s-]?time").test(t)) return false;
           }
           const s = mode === "eligibility" ? j.eligibility : j.scope;
-          if (country && s.countries.includes(country)) return false;
+          // "Exclude country" hides listings scoped *only* to that country —
+          // a Europe-wide remote role still serves an excluded-country user.
+          if (country && s.countries.length === 1 && s.countries.includes(country)) return false;
           if (!group) return true;
           return scopeMatches(s, group) || (unknown && (s.unknown || s.uncertain));
         })
@@ -566,7 +570,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
         )}
         {shown < total && (
           <div ref={moreRef} className="m-more">
-            <Spinner size={16} /> Showing {Math.min(shown, total)} of {total} — scroll for more
+            <Spinner size={30} /> Showing {Math.min(shown, total)} of {total} — scroll for more
           </div>
         )}
         <details className="definitions">

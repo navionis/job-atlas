@@ -13,10 +13,12 @@ import {
   dbListJobStatuses,
   dbSetFeedDisabled,
   dbSetAdmin,
+  dbSaveFeed,
+  dbSaveAttempts,
 } from "./db";
 import { listProfileEmails } from "./profiles";
 import type { StoreState } from "./db";
-import type { Job, JobStatus, Snapshot, SourceStatus } from "./types";
+import type { Job, JobStatus, Snapshot, SourceStatus, StatusEntry } from "./types";
 type Row = Record<string, any>;
 type Feed = {
   id: string;
@@ -251,7 +253,17 @@ function hnhiringJobs(html: string): Job[] {
       .update(head + "|" + body)
       .digest("hex")
       .slice(0, 12);
-    const url = (body.match(/href="(https?:\/\/(?!news\.ycombinator\.com)[^"]+)"/) || [])[1];
+    const links = [...body.matchAll(/href="(https?:\/\/(?!news\.ycombinator\.com)[^"]+)"/g)].map((x) => x[1]);
+    // First link is usually the company domain in the header line; prefer a
+    // link with a real path (the "Apply:" / "Details:" URL) when present.
+    const url =
+      links.find((l) => {
+        try {
+          return new URL(l).pathname.length > 1;
+        } catch {
+          return false;
+        }
+      }) || links[0];
     out.push(
       job("hnhiring", {
         id,
@@ -723,6 +735,7 @@ export async function setJobStatus(email: string, id: string, status: JobStatus)
   }
   if (status === "listed") delete mine[id];
   else mine[id] = { status, at: Date.now() };
+  statusCache.delete(email);
   if (shared.pg) {
     if (status === "listed") await dbDeleteJobStatus(email, id);
     else await dbSetJobStatus(email, id, status, Date.now());
@@ -843,7 +856,20 @@ function reserve(f: Feed) {
     throw Error("Local Jooble lifetime budget exhausted");
   shared.state.attempts[scope] = [...a, now];
   shared.state.lifetime[scope] = (shared.state.lifetime[scope] || 0) + 1;
+  return scope;
 }
+// Persist only what a refresh touched — one feed_state row + its attempt scope.
+// A whole-state saveState() would serialize every feed's jobs JSON per call.
+async function persistFeed(f: Feed, scope: string) {
+  if (shared.pg) {
+    const e = shared.state.entries[f.id];
+    if (!e) return;
+    const ops: Promise<void>[] = [dbSaveFeed(f.id, e)];
+    if (scope) ops.push(dbSaveAttempts(scope, shared.state.attempts[scope] || [], shared.state.lifetime[scope] || 0));
+    await Promise.all(ops);
+  } else await save();
+}
+const jobSigs = new Map<string, string>();
 async function refresh(f: Feed, force = false) {
   await shared.hydrated;
   let e = shared.state.entries[f.id];
@@ -851,10 +877,11 @@ async function refresh(f: Feed, force = false) {
   e ??= { jobs: [], next: 0, fetched: 0, status: "loading", detail: "" };
   shared.state.entries[f.id] = e;
   e.next = Date.now() + f.ttl;
+  let scope = "";
   try {
     await shared.hydrated;
-    reserve(f);
-    await save(); // Reserve before network, including failed calls.
+    scope = reserve(f);
+    await persistFeed(f, scope); // Reserve before network, including failed calls.
     const requests: { url: string; init?: RequestInit }[] = [{ url: f.url, init: f.init }];
     for (let p = 2; p <= (f.pages || 1); p++) requests.push(f.pageUrl!(p));
     const jobs: Job[] = [];
@@ -894,7 +921,17 @@ async function refresh(f: Feed, force = false) {
       f.provider === "remotive"
         ? "Provider listings delayed by 24 hours"
         : "Latest configured feed slice; see coverage";
-    if (shared.pg) await upsertJobs(found);
+    if (shared.pg) {
+      // Skip the multi-hundred-row upsert when the feed content is identical
+      // to the last successful write.
+      const sig = createHash("sha1")
+        .update(found.map((j) => j.id + j.url + j.posted + j.title + j.company + j.location).join("\n"))
+        .digest("hex");
+      if (jobSigs.get(f.id) !== sig) {
+        await upsertJobs(found);
+        jobSigs.set(f.id, sig);
+      }
+    }
   } catch (error) {
     // A failed fetch must not park the feed for a whole TTL — retry in 15 min.
     // A Retry-After hint longer than the TTL (from the 429/503 path) still wins.
@@ -905,7 +942,7 @@ async function refresh(f: Feed, force = false) {
         ? error.message
         : "Could not retrieve feed; check server network and source configuration";
   }
-  await save();
+  await persistFeed(f, scope);
 }
 let baseCache: { snap: Snapshot; feedsKey: string } | null = null;
 /** Refresh due feeds (or all when forced), stalest-first, 3 at a time. */
@@ -949,6 +986,17 @@ export async function syncAll(force = false): Promise<{
   ).size;
   return { refreshed, failed, skipped, jobs, took: Date.now() - t0 };
 }
+let refreshing = false;
+async function refreshAll(enabled: Feed[]) {
+  refreshing = true;
+  try {
+    // Three concurrent upstream requests; no per-viewer polling amplification.
+    for (let i = 0; i < enabled.length; i += 3) await Promise.all(enabled.slice(i, i + 3).map((f) => refresh(f)));
+    baseCache = null;
+  } finally {
+    refreshing = false;
+  }
+}
 async function collect(): Promise<Snapshot> {
   await shared.hydrated;
   const configured = feeds();
@@ -962,9 +1010,17 @@ async function collect(): Promise<Snapshot> {
     return !e || e.next <= Date.now();
   });
   if (!due && baseCache && baseCache.feedsKey === feedsKey) return baseCache.snap;
-  // Three concurrent upstream requests; no per-viewer polling amplification.
-  for (let i = 0; i < enabled.length; i += 3)
-    await Promise.all(enabled.slice(i, i + 3).map((f) => refresh(f)));
+  // Warm path: serve the cached snapshot instantly and refresh upstream in the
+  // background — page renders, SSE ticks and /api/jobs polls must not block on
+  // provider fetches. A cold start (nothing cached yet) still awaits so the
+  // first paint has data.
+  const hasData = enabled.some((f) => (shared.state.entries[f.id]?.jobs.length || 0) > 0);
+  if (due) {
+    if (hasData) {
+      if (!refreshing) void refreshAll(enabled);
+    } else if (!refreshing) await refreshAll(enabled);
+    // else: a cold-start refresh is already in flight — serve what's cached.
+  }
   const sources: SourceStatus[] = configured.map((f) => {
     const e = shared.state.entries[f.id];
     if (disabled.has(f.id))
@@ -1011,6 +1067,8 @@ async function collect(): Promise<Snapshot> {
   baseCache = { snap, feedsKey };
   return snap;
 }
+const statusCache = new Map<string, { at: number; v: Record<string, StatusEntry> }>();
+const STATUS_TTL = 8000;
 export async function snapshot(email = ""): Promise<Snapshot> {
   if (!shared.pending)
     shared.pending = collect().finally(() => {
@@ -1018,7 +1076,16 @@ export async function snapshot(email = ""): Promise<Snapshot> {
     });
   const base = await shared.pending;
   // Fresh per-user read — other processes (deployed app, sync script) may have
-  // written marks since this process hydrated its in-memory mirror.
-  const fresh = shared.pg && email ? await dbListJobStatuses(email) : null;
+  // written marks since this process hydrated its in-memory mirror. Bounded by
+  // a short TTL so renders/polls don't hit Postgres per call.
+  let fresh: Record<string, StatusEntry> | null = null;
+  if (shared.pg && email) {
+    const hit = statusCache.get(email);
+    if (hit && Date.now() - hit.at < STATUS_TTL) fresh = hit.v;
+    else {
+      fresh = await dbListJobStatuses(email);
+      if (fresh) statusCache.set(email, { at: Date.now(), v: fresh });
+    }
+  }
   return { ...base, statuses: fresh ?? statusesFor(email) };
 }

@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
   let busy = false;
+  let lastSig = "";
   const stream = new ReadableStream({
     start(controller) {
       const close = () => {
@@ -25,7 +26,14 @@ export async function GET(request: Request) {
         busy = true;
         try {
           const data = await snapshot(email);
-          if (!closed) controller.enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(data)}\n\n`));
+          // Skip identical payloads — jobs/sources only change when a feed
+          // refreshes (which bumps updatedAt); statuses are small enough to
+          // hash into the signature directly.
+          const sig = data.updatedAt + ":" + JSON.stringify(data.statuses);
+          if (sig !== lastSig && !closed) {
+            lastSig = sig;
+            controller.enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(data)}\n\n`));
+          }
         } catch {
           if (!closed)
             controller.enqueue(encoder.encode('event: feed-error\ndata: {"message":"Feed unavailable"}\n\n'));
