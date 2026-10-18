@@ -15,9 +15,7 @@ export function verifySessionValue(value: string | undefined | null): Session | 
   try {
     const [b64, exp, sig] = value.split(".");
     if (!b64 || !exp || !sig || Number(exp) < Date.now()) return null;
-    const expected = createHmac("sha256", secret)
-      .update(`${b64}.${exp}`)
-      .digest("base64url");
+    const expected = createHmac("sha256", secret).update(`${b64}.${exp}`).digest("base64url");
     if (expected.length !== sig.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
     const p = JSON.parse(Buffer.from(b64, "base64url").toString());
     const email = String(p.e || "");

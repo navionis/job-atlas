@@ -14,6 +14,8 @@
   --green: #047857;
   --amber-bg: #fffbeb;
   --amber: #b45309;
+  --red-bg: #fef2f2;
+  --red: #b91c1c;
   --alert-bg: #fffbeb;
   --alert-line: #fde68a;
   --alert: #92400e;
@@ -40,6 +42,8 @@ html.dark {
   --green: #4ade80;
   --amber-bg: #2d2410;
   --amber: #fbbf24;
+  --red-bg: #3b1d1d;
+  --red: #f87171;
   --alert-bg: #2b2113;
   --alert-line: #4a3a1c;
   --alert: #e8c47c;
@@ -891,13 +895,46 @@ html.dark .empty {
   border-top: 1px solid var(--line);
   margin-top: 24px;
 }
-.sources {
-  padding: 8px 0 40px;
+.src-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 14px;
 }
-.sources > p {
+.src-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.src-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.src-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
   color: var(--muted);
-  line-height: 1.8;
-  font-size: 13px;
+  font-size: 11px;
+}
+.src-card-stats b {
+  color: var(--ink);
+  font-size: 14px;
+}
+.src-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.pill.red {
+  background: var(--red-bg);
+  color: var(--red);
 }
 .table-scroll {
   overflow: auto;
@@ -923,7 +960,6 @@ td,
 th {
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
-  min-width: 135px;
   vertical-align: middle;
   line-height: 1.7;
 }
@@ -947,6 +983,7 @@ td a {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 6px 0;
 }
 .src-toggle {
@@ -2116,11 +2153,8 @@ article {
   transform: rotate(180deg);
 }
 .sel-pop {
-  position: absolute;
+  position: fixed;
   z-index: 40;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
   margin: 0;
   padding: 5px;
   list-style: none;
@@ -2132,7 +2166,6 @@ article {
   overflow: auto;
 }
 .sel.compact .sel-pop {
-  left: auto;
   min-width: 170px;
 }
 .sel-opt {

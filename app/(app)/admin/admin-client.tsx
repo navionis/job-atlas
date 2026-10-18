@@ -80,6 +80,27 @@ export default function AdminClient({
       .finally(() => setBusy((b) => b.filter((x) => x !== email)));
   };
   const configured = data.sources.filter((s) => s.status !== "not configured");
+  const tier = (c: (typeof catalog)[number]) => {
+    const st = data.sources.filter((s) => s.id.split(":")[0] === c.id);
+    const count = st.reduce((n, s) => n + s.count, 0);
+    const rank = st.some((s) => s.status === "connected")
+      ? 0
+      : st.some((s) => s.status === "loading")
+        ? 1
+        : st.some((s) => s.status === "stale" || s.status === "unavailable")
+          ? 2
+          : st.some((s) => s.status === "disabled")
+            ? 3
+            : c.implemented
+              ? 4
+              : 5;
+    return { rank, count };
+  };
+  const rows = [...catalog].sort((a, b) => {
+    const x = tier(a),
+      y = tier(b);
+    return x.rank - y.rank || y.count - x.count;
+  });
   return (
     <FadeIn className="pf-wrap">
       <div className="section-title">
@@ -121,7 +142,7 @@ export default function AdminClient({
                 </tr>
               </thead>
               <tbody>
-                {catalog.map((c) => (
+                {rows.map((c) => (
                   <tr key={c.id}>
                     <td>
                       <a href={c.url} target="_blank" rel="noreferrer" className="src-link">

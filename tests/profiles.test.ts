@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { extractKeywords, effectiveKeywords, emptyProfile } from "../lib/profiles";
 
 test("extractKeywords finds dictionary skills and drops stopwords", () => {
-  const kw = extractKeywords("Built typescript react services with docker and kubernetes. Experience with agile teams.");
+  const kw = extractKeywords(
+    "Built typescript react services with docker and kubernetes. Experience with agile teams.",
+  );
   assert(kw.includes("typescript"));
   assert(kw.includes("react"));
   assert(kw.includes("docker"));

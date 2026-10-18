@@ -22,8 +22,23 @@ export function Select({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number }>({
+    left: 0,
+    width: 0,
+  });
   useEffect(() => {
     if (!open) return;
+    const sync = () => {
+      const r = ref.current?.getBoundingClientRect();
+      if (!r) return;
+      const below = window.innerHeight - r.bottom;
+      setPos(
+        below > 280 || below > r.top
+          ? { top: r.bottom + 6, left: r.left, width: r.width }
+          : { bottom: window.innerHeight - r.top + 6, left: r.left, width: r.width },
+      );
+    };
+    sync();
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
@@ -32,9 +47,13 @@ export function Select({
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", sync);
+    window.addEventListener("scroll", sync, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("scroll", sync, true);
     };
   }, [open]);
   const current = options.find((o) => o.value === value);
@@ -57,6 +76,13 @@ export function Select({
           <motion.ul
             className="sel-pop"
             role="listbox"
+            style={{
+              top: pos.top,
+              bottom: pos.bottom,
+              left: pos.left,
+              width: compact ? "auto" : pos.width,
+              minWidth: compact ? Math.max(pos.width, 170) : undefined,
+            }}
             initial={{ opacity: 0, y: -4, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}

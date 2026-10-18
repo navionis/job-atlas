@@ -325,7 +325,7 @@ export function feeds(): Feed[] {
       html: true,
       map: web3careerJobs,
     },
-    { id: "jumpcrypto", provider: "getro", ...getro(1), ttl: 6 * H, pages: 3, pageUrl: getro, map: getroJobs },
+    { id: "getro", provider: "getro", ...getro(1), ttl: 6 * H, pages: 3, pageUrl: getro, map: getroJobs },
     {
       id: "raretalent",
       provider: "raretalent",
@@ -815,8 +815,8 @@ async function refresh(f: Feed) {
   await save();
 }
 let baseCache: { snap: Snapshot; feedsKey: string } | null = null;
-/** Refresh only feeds that are due (TTL elapsed), stalest-first, 3 at a time. */
-export async function syncAll(): Promise<{
+/** Refresh due feeds (or all when forced), stalest-first, 3 at a time. */
+export async function syncAll(force = false): Promise<{
   refreshed: string[];
   failed: { id: string; error: string }[];
   skipped: number;
@@ -836,7 +836,7 @@ export async function syncAll(): Promise<{
     await Promise.all(
       due.slice(i, i + 3).map(async (f) => {
         const e = shared.state.entries[f.id];
-        if (e && e.next > Date.now()) {
+        if (!force && e && e.next > Date.now()) {
           skipped++;
           return;
         }

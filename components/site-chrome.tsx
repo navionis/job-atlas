@@ -11,6 +11,7 @@ import type { Session } from "../lib/auth";
 const LINKS: [string, string][] = [
   ["/", "Dashboard"],
   ["/jobs", "Discover jobs"],
+  ["/sources", "Sources"],
   ["/profile", "Profile"],
 ];
 
@@ -150,7 +151,7 @@ export function SiteFooter() {
           <Link href="/">Dashboard</Link>
           <Link href="/jobs">Discover jobs</Link>
           <Link href="/jobs">Matched for you</Link>
-          <Link href="/admin">Sources & admin</Link>
+          <Link href="/sources">Sources</Link>
           <Link href="/profile">Profile</Link>
         </div>
         <div className="foot-note">

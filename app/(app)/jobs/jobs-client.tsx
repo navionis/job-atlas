@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, MapPin, ArrowUpRight, Compass, FileText } from "lucide-react";
+import { Search, MapPin, ArrowUpRight, Compass, FileText, User } from "lucide-react";
 import { Spinner } from "../../../components/loader";
 import { Favicon } from "../../../components/favicon";
 import { EASE } from "../../../components/motion";
@@ -35,7 +35,7 @@ type JobStatus = (typeof STAGES)[number][0];
 
 export default function JobsClient({ initial, meta }: { initial: Snapshot; meta: Meta }) {
   const { data, loading, error } = useLiveData(initial);
-  const { keywords: profileKw, sourceRank: srcRank } = useLiveProfileMeta(meta);
+  const { sourceRank: srcRank } = useLiveProfileMeta(meta);
   const sp = useSearchParams();
   const f = meta.filters;
   const country = f.country || "",
@@ -46,9 +46,12 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     sched = f.sched || "",
     mode = f.mode || "location",
     unknown = !!f.unknown;
-  const defaultTab = meta.resumes[0]?.id || (meta.manual.length ? "manual" : "all");
+  const defaultTab = "profile";
   const validMatch = (v: string | null): v is string =>
-    v === "all" || (v === "manual" && meta.manual.length > 0) || meta.resumes.some((r) => r.id === v);
+    v === "all" ||
+    v === "profile" ||
+    (v === "manual" && meta.manual.length > 0) ||
+    meta.resumes.some((r) => r.id === v);
   const validStatus = (v: string | null): v is JobStatus => STAGES.some(([s]) => s === v);
   const tab = validMatch(sp.get("match")) ? sp.get("match")! : defaultTab;
   const statusFilter: JobStatus = validStatus(sp.get("status")) ? (sp.get("status") as JobStatus) : "listed";
@@ -74,8 +77,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const [marking, setMarking] = useState<string[]>([]),
     [shown, setShown] = useState(PAGE);
   const moreRef = useRef<HTMLDivElement>(null);
-  const matched = tab !== "all";
-  const kwSources = meta.resumes.length + (meta.manual.length ? 1 : 0);
+  const matched = tab !== "all" && tab !== "profile";
   const doMark = (id: string, st: "listed" | "applied" | "cancelled" | "ignored") => {
     setMarking((m) => [...m, id]);
     void mark(id, st).finally(() => setMarking((m) => m.filter((x) => x !== id)));
@@ -126,15 +128,18 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const selected = country || group;
   const homeName = countries.find((c) => c.code === remoteTo)?.name || "";
   const name = countries.find((c) => c.code === country)?.name || group || "Everywhere";
-  const terms = useMemo(
-    () => (query ? [query.toLowerCase()] : profileKw.map((k) => k.toLowerCase())),
-    [query, profileKw],
-  );
+  const terms = useMemo(() => (query ? [query.toLowerCase()] : []), [query]);
   const statuses = useMemo(() => data.statuses || {}, [data.statuses]);
   const preStatus = useMemo(
     () =>
       data.jobs
         .filter((j) => {
+          if (
+            terms.length &&
+            !terms.some((t) => `${j.title} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(t))
+          )
+            return false;
+          if (tab === "all") return true;
           if (source && j.source !== source) return false;
           if ((remote === "remote" && !j.remote) || (remote === "onsite" && j.remote)) return false;
           if (remoteTo) {
@@ -145,18 +150,13 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             const t = `${j.title} ${j.tags.join(" ")} ${j.summary}`.toLowerCase();
             if (!new RegExp(sched + "[\\s-]?time").test(t)) return false;
           }
-          if (
-            terms.length &&
-            !terms.some((t) => `${j.title} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(t))
-          )
-            return false;
           const s = mode === "eligibility" ? j.eligibility : j.scope;
           if (country && s.countries.includes(country)) return false;
           if (!group) return true;
           return scopeMatches(s, group) || (unknown && (s.unknown || s.uncertain));
         })
         .sort((a, b) => (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3) || b.posted.localeCompare(a.posted)),
-    [data.jobs, terms, country, group, source, remote, remoteTo, sched, mode, unknown, srcRank],
+    [data.jobs, terms, tab, country, group, source, remote, remoteTo, sched, mode, unknown, srcRank],
   );
   const counts = useMemo(() => {
     const c: Record<string, number> = { listed: 0, applied: 0, cancelled: 0, ignored: 0 };
@@ -166,13 +166,15 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     }
     return c;
   }, [preStatus, statuses]);
-  const filtered = useMemo(
-    () =>
+  const filtered = useMemo(() => {
+    const list =
       statusFilter === "all"
         ? preStatus
-        : preStatus.filter((j) => (statuses[j.id]?.status || "listed") === statusFilter),
-    [preStatus, statusFilter, statuses],
-  );
+        : preStatus.filter((j) => (statuses[j.id]?.status || "listed") === statusFilter);
+    if (statusFilter === "applied" || statusFilter === "cancelled" || statusFilter === "ignored")
+      return [...list].sort((a, b) => (statuses[b.id]?.at || 0) - (statuses[a.id]?.at || 0));
+    return list;
+  }, [preStatus, statusFilter, statuses]);
   const ranked = useMemo(() => {
     if (!matched) return [];
     const r = meta.resumes.find((x) => x.id === tab);
@@ -203,13 +205,11 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           </span>
           <input
             aria-label="Search jobs"
-            placeholder={
-              profileKw.length && !query ? "Matching your profile keywords" : "Job title, company, or keyword"
-            }
+            placeholder="Job title, company, or keyword"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <span className="key">{!query && profileKw.length ? "PROFILE" : "SEARCH"}</span>
+          <span className="key">SEARCH</span>
         </div>
         <div className="pipe" role="tablist" aria-label="Pipeline stage">
           {STAGES.map(([v, l]) => (
@@ -222,45 +222,52 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             </button>
           ))}
         </div>
-        {kwSources > 0 && (
-          <div className="m-tabs">
-            <button className={"m-tab" + (tab === "all" ? " on" : "")} onClick={() => setTab("all")}>
-              All listings
+        <div className="m-tabs">
+          <button className={"m-tab" + (tab === "profile" ? " on" : "")} onClick={() => setTab("profile")}>
+            <User size={13} /> Profile
+          </button>
+          <button className={"m-tab" + (tab === "all" ? " on" : "")} onClick={() => setTab("all")}>
+            All listings
+          </button>
+          {meta.resumes.map((r) => (
+            <button key={r.id} className={"m-tab" + (tab === r.id ? " on" : "")} onClick={() => setTab(r.id)}>
+              <FileText size={13} /> {r.alias || r.name}
             </button>
-            {meta.resumes.map((r) => (
-              <button key={r.id} className={"m-tab" + (tab === r.id ? " on" : "")} onClick={() => setTab(r.id)}>
-                <FileText size={13} /> {r.alias || r.name}
-              </button>
-            ))}
-            {meta.manual.length > 0 && (
-              <button className={"m-tab" + (tab === "manual" ? " on" : "")} onClick={() => setTab("manual")}>
-                Manual keywords
-              </button>
-            )}
-          </div>
-        )}
+          ))}
+          {meta.manual.length > 0 && (
+            <button className={"m-tab" + (tab === "manual" ? " on" : "")} onClick={() => setTab("manual")}>
+              Manual keywords
+            </button>
+          )}
+        </div>
         <div className="section-title">
           <div>
             <h2>
-              {matched
-                ? activeResume
-                  ? `Matched for you — ${activeResume.alias || activeResume.name}`
-                  : "Matched for you — manual keywords"
-                : remoteTo
-                  ? `Remote jobs open to ${homeName}`
-                  : `Opportunities ${country ? "excluding" : "in"} ${name}`}
+              {tab === "all"
+                ? "All connected listings"
+                : matched
+                  ? activeResume
+                    ? `Matched for you — ${activeResume.alias || activeResume.name}`
+                    : "Matched for you — manual keywords"
+                  : remoteTo
+                    ? `Remote jobs open to ${homeName}`
+                    : `Opportunities ${country ? "excluding" : "in"} ${name}`}
             </h2>
             <p>
               {loading
                 ? "Checking available feeds…"
                 : matched
                   ? `${ranked.length} jobs ranked against ${activeResume ? activeResume.keywords.length : meta.manual.length} keywords`
-                  : `${filtered.length} ${statusFilter === "all" ? "" : statusFilter + " "}jobs in the loaded feed slices`}
+                  : tab === "all"
+                    ? `${filtered.length} jobs across all connected feeds`
+                    : filtered.length === data.jobs.length
+                      ? `${filtered.length} jobs`
+                      : `${filtered.length} of ${data.jobs.length} jobs match your search preferences`}
             </p>
           </div>
           <span className="pill green">{mode === "eligibility" ? "Candidate scope" : "Location matching"}</span>
         </div>
-        {chips.length > 0 && (
+        {tab !== "all" && chips.length > 0 && (
           <div className="active-filters">
             <span className="af-label">Search preferences</span>
             {chips.map((c) => (
@@ -273,7 +280,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             </Link>
           </div>
         )}
-        {selected && (
+        {selected && tab !== "all" && (
           <div className="coverage">
             {name} is selectable even when a provider has no coverage. Worldwide listings are included when explicitly
             labeled.{" "}
@@ -322,6 +329,14 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                 <button className="primary" onClick={() => setStatusFilter("listed")}>
                   View listed jobs <ArrowUpRight size={13} />
                 </button>
+              </>
+            ) : tab === "all" ? (
+              <>
+                <h3>No listings in the loaded feeds.</h3>
+                <p>The connected sources returned no jobs yet — check their status or connect more.</p>
+                <Link className="primary" href="/admin">
+                  Check source coverage <ArrowUpRight size={13} />
+                </Link>
               </>
             ) : (
               <>
