@@ -30,6 +30,10 @@ type Feed = {
   map: (data: any) => Job[];
 };
 const H = 3600000;
+// Some providers (hnhiring, boards behind bot filters) intermittently 403 the
+// default undici `node` UA; a plain browser UA is accepted everywhere.
+const FEED_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 const plain = (v: any) =>
   String(v ?? "")
     .replace(/<[^>]*>/g, " ")
@@ -109,7 +113,12 @@ function web3careerJobs(html: string): Job[] {
     const [, id, path, row] = m;
     const pick = (re: RegExp) => plain((row.match(re) || [])[1]);
     const p = enrich ? postings[i] : undefined;
-    const loc = pick(/job-location-mobile[\s\S]*?<a[^>]*>([^<]*)<\/a>/);
+    const loc = plain(
+      ((row.match(/job-location-mobile[^>]*>([\s\S]*?)<\/td>/) || [])[1] || "").replace(
+        /<span class=job-loc-pin>[\s\S]*?<\/span>/,
+        "",
+      ),
+    );
     const salary = pick(/text-salary[^>]*>([\s\S]*?)<\/p>/);
     return job("web3career", {
       id,
@@ -221,7 +230,16 @@ function hnhiringJobs(html: string): Job[] {
       .replace(/\(\s*https?:[^)]*\)/g, "")
       .replace(/^(company)\s*:\s*/i, "")
       .trim();
-    const rest = /^location\s*:/i.test(segs[0] || "") ? segs : segs.slice(1);
+    const rest = (/^location\s*:/i.test(segs[0] || "") ? segs : segs.slice(1))
+      .map((s) =>
+        s
+          .replace(/\(\s*https?:\/\/[^)]*\)/g, " ")
+          .replace(/https?:\/\/\S+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .replace(/^\(([^()]*)\)$/, "$1"),
+      )
+      .filter(Boolean);
     const locSeg = rest.find((s) => HN_PLACEISH.test(s)) || "";
     const title = (
       rest.find((s) => HN_TITLEISH.test(s)) ||
@@ -826,10 +844,10 @@ function reserve(f: Feed) {
   shared.state.attempts[scope] = [...a, now];
   shared.state.lifetime[scope] = (shared.state.lifetime[scope] || 0) + 1;
 }
-async function refresh(f: Feed) {
+async function refresh(f: Feed, force = false) {
   await shared.hydrated;
   let e = shared.state.entries[f.id];
-  if (e && e.next > Date.now()) return;
+  if (!force && e && e.next > Date.now()) return;
   e ??= { jobs: [], next: 0, fetched: 0, status: "loading", detail: "" };
   shared.state.entries[f.id] = e;
   e.next = Date.now() + f.ttl;
@@ -840,14 +858,27 @@ async function refresh(f: Feed) {
     const requests: { url: string; init?: RequestInit }[] = [{ url: f.url, init: f.init }];
     for (let p = 2; p <= (f.pages || 1); p++) requests.push(f.pageUrl!(p));
     const jobs: Job[] = [];
-    for (const r of requests) {
-      const response = await fetch(r.url, {
+    const request = (r: { url: string; init?: RequestInit }) =>
+      fetch(r.url, {
         ...r.init,
-        headers: { Accept: f.html ? "text/html, */*" : "application/json", ...r.init?.headers },
+        headers: {
+          "User-Agent": FEED_UA,
+          Accept: f.html ? "text/html, */*" : "application/json",
+          "Accept-Language": "en-US,en;q=0.9",
+          ...r.init?.headers,
+        },
         signal: AbortSignal.timeout(18000),
         cache: "no-store",
         redirect: "error",
       });
+    for (const r of requests) {
+      let response = await request(r);
+      // CDN bot checks (e.g. Cloudflare on hnhiring) flap 403s; one delayed
+      // retry usually clears them — otherwise the feed is parked for its TTL.
+      if (response.status === 403) {
+        await new Promise((res) => setTimeout(res, 2500));
+        response = await request(r);
+      }
       if (!response.ok) {
         if (response.status === 429 || response.status === 503)
           e.next = Math.max(e.next, Date.now() + retryDelay(response.headers.get("retry-after")));
@@ -865,6 +896,9 @@ async function refresh(f: Feed) {
         : "Latest configured feed slice; see coverage";
     if (shared.pg) await upsertJobs(found);
   } catch (error) {
+    // A failed fetch must not park the feed for a whole TTL — retry in 15 min.
+    // A Retry-After hint longer than the TTL (from the 429/503 path) still wins.
+    if (e.next <= Date.now() + f.ttl + 1000) e.next = Date.now() + 15 * 60000;
     e.status = e.jobs.length ? "stale" : "unavailable";
     e.detail =
       error instanceof Error && /^(Provider returned|Local )/.test(error.message)
@@ -899,7 +933,7 @@ export async function syncAll(force = false): Promise<{
           skipped++;
           return;
         }
-        await refresh(f);
+        await refresh(f, force);
         const after = shared.state.entries[f.id];
         if (after?.status === "connected") refreshed.push(f.id);
         else failed.push({ id: f.id, error: after?.detail || "unknown" });
@@ -929,7 +963,8 @@ async function collect(): Promise<Snapshot> {
   });
   if (!due && baseCache && baseCache.feedsKey === feedsKey) return baseCache.snap;
   // Three concurrent upstream requests; no per-viewer polling amplification.
-  for (let i = 0; i < enabled.length; i += 3) await Promise.all(enabled.slice(i, i + 3).map(refresh));
+  for (let i = 0; i < enabled.length; i += 3)
+    await Promise.all(enabled.slice(i, i + 3).map((f) => refresh(f)));
   const sources: SourceStatus[] = configured.map((f) => {
     const e = shared.state.entries[f.id];
     if (disabled.has(f.id))

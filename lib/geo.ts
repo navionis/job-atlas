@@ -105,6 +105,9 @@ const GROUP_PATTERNS = Object.keys(groups)
   }));
 const US_TAIL = /,\s*[A-Z]{2}\s*,\s*(US|USA|United States)\b/;
 const UK_WORD = /\bUK\b/;
+// Bare "US" embedded in a token ("US only", "US time zones") — the token
+// splitter needs an exact match, and 2-char aliases are filtered below.
+const US_WORD = /\bUS\b/;
 const CITIES = new Map(
   Object.entries({
     "addis ababa": "ET",
@@ -132,6 +135,7 @@ function names(text: string) {
     }
   }
   if (UK_WORD.test(text)) found.add("GB");
+  if (US_WORD.test(text)) found.add("US");
   // A small unambiguous city dictionary; other city-only locations remain unknown.
   for (const [re, code] of CITIES) if (re.test(n)) found.add(code);
   return [...found];
