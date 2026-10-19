@@ -1,12 +1,10 @@
-import { cookies } from "next/headers";
-import { verifySessionValue } from "../../lib/auth";
+import { currentSession } from "../../lib/auth";
 import { isAdminUser } from "../../lib/feeds";
 import { SiteHeader, SiteFooter, ScrollTop } from "../../components/site-chrome";
 import GoogleContinue from "../../components/google-continue";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const store = await cookies();
-  const me = verifySessionValue(store.get("atlas_session")?.value);
+  const me = await currentSession();
   // Guests browse public pages (Discover, Sources) — account surfaces gate
   // themselves in their own page/layout (dashboard, profile, admin).
   return (

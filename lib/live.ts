@@ -124,6 +124,20 @@ function useProfileMeta(enabled = true): ProfileMeta {
   }, [enabled]);
   return p;
 }
+/** Server-adjusted clock. The offset between this client and the server is
+ * sampled once per snapshot (serverAt), then re-applied every 30s so relative
+ * labels and day boundaries stay current. `seed` = SSR-stamped serverAt. */
+export function useServerClock(serverAt?: number, seed = 0): number {
+  const [now, setNow] = useState(seed);
+  useEffect(() => {
+    const offset = serverAt ? serverAt - Date.now() : 0;
+    const update = () => setNow(Date.now() + offset);
+    update();
+    const i = setInterval(update, 30000);
+    return () => clearInterval(i);
+  }, [serverAt]);
+  return now;
+}
 export function updateProfileMeta(p: ProfileMeta) {
   profileMeta = p;
   metaTouched = true;

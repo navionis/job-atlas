@@ -1,4 +1,4 @@
-import { getSession } from "../../../lib/auth";
+import { getSession, unauthorized } from "../../../lib/auth";
 import { getProfile, saveProfile, effectiveKeywords, extractKeywords } from "../../../lib/profiles";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ const normFilters = (v: any) => {
 };
 export async function GET(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   const p = await getProfile(me.email);
   return Response.json(
     {
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 }
 export async function PUT(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   let body: any = {};
   try {
     body = await request.json();

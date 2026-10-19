@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { pgEnabled, dbLoadProfile, dbSaveProfile, dbListProfileEmails } from "./db";
-import type { Profile } from "./types";
+import type { JobsMeta, Profile } from "./types";
+import type { Session } from "./auth";
 const dir = process.env.DATA_DIR || join(process.cwd(), ".data");
 const file = join(dir, "profiles.json");
 function loadAll(): Record<string, Profile> {
@@ -274,4 +275,18 @@ export function extractKeywords(text: string, max = 30): string[] {
     .sort((a, b) => b[1] - a[1])
     .map(([w]) => w);
   return [...new Set([...picks, ...rest])].slice(0, max);
+}
+
+/** Discover-page meta for a session (or guest): keywords, ranks, saved filters, resumes. */
+export async function jobsMeta(me: Session | null): Promise<JobsMeta> {
+  const p = me ? await getProfile(me.email).catch(() => null) : null;
+  return {
+    guest: !me,
+    keywords: p ? effectiveKeywords(p) : [],
+    sourceRank: p?.sourceRank || {},
+    filters: p?.filters || {},
+    resumes: (p?.resumes || []).map((r) => ({ id: r.id, name: r.name, alias: r.alias, keywords: r.keywords })),
+    manual: p?.keywords || [],
+    excluded: p?.excluded || [],
+  };
 }

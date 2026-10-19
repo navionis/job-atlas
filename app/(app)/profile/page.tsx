@@ -1,6 +1,5 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifySessionValue } from "../../../lib/auth";
+import { currentSession } from "../../../lib/auth";
 import { getProfile, effectiveKeywords } from "../../../lib/profiles";
 import ProfileClient from "./profile-client";
 export const dynamic = "force-dynamic";
@@ -10,8 +9,7 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 export default async function ProfilePage() {
-  const store = await cookies();
-  const me = verifySessionValue(store.get("atlas_session")?.value);
+  const me = await currentSession();
   if (!me) redirect("/login");
   const p = await getProfile(me.email);
   return (

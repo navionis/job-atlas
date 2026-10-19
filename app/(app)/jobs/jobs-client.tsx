@@ -4,26 +4,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, MapPin, ArrowUpRight, Compass, FileText, User, X } from "lucide-react";
+import { Search, MapPin, ArrowUpRight, CalendarDays, Compass, FileText, User, X } from "lucide-react";
 import { Spinner } from "../../../components/loader";
-import { Favicon } from "../../../components/favicon";
 import { Select } from "../../../components/select";
 import { EASE } from "../../../components/motion";
 import { countries, scopeMatches } from "../../../lib/geo";
-import { catalog } from "../../../lib/catalog";
-import { useLiveData, useLiveProfileMeta, mark, refresh } from "../../../lib/live";
+import { sourceName } from "../../../lib/catalog";
+import { useLiveData, useLiveProfileMeta, refresh, useServerClock } from "../../../lib/live";
 import { rankJobs, type JobMatch } from "../../../lib/match";
-import type { Snapshot, DiscoverFilters } from "../../../lib/types";
-
-type Meta = {
-  guest?: boolean;
-  keywords: string[];
-  sourceRank: Record<string, number>;
-  filters: Partial<DiscoverFilters>;
-  resumes: { id: string; name: string; alias?: string; keywords: string[] }[];
-  manual: string[];
-  excluded: string[];
-};
+import { PillTabs } from "../../../components/pill-tabs";
+import { JobHead, RemotePill, HitPills, JobActions } from "../../../components/job-parts";
+import type { Snapshot, JobsMeta } from "../../../lib/types";
 
 const PAGE = 15;
 const STAGES = [
@@ -34,21 +25,25 @@ const STAGES = [
   ["all", "All"],
 ] as const;
 type JobStatus = (typeof STAGES)[number][0];
-const DAYS = [
-  { value: "", label: "All time" },
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Since yesterday" },
-  { value: "3d", label: "Last 3 days" },
-  { value: "7d", label: "Last week" },
-  { value: "30d", label: "Last month" },
+const DAY_HOURS: [value: string, label: string, hours: number][] = [
+  ["", "All time", 0],
+  ["24h", "Last 24h", 24],
+  ["48h", "Last 48h", 48],
+  ["3d", "Last 3 days", 72],
+  ["7d", "Last week", 168],
+  ["14d", "Last 2 weeks", 336],
+  ["30d", "Last month", 720],
+  ["90d", "Last 3 months", 2160],
 ];
+const DAYS = DAY_HOURS.map(([value, label]) => ({ value, label }));
+const LEGACY_DAYS: Record<string, string> = { today: "24h", yesterday: "48h" };
 
-export default function JobsClient({ initial, meta }: { initial: Snapshot; meta: Meta }) {
+export default function JobsClient({ initial, meta }: { initial: Snapshot; meta: JobsMeta }) {
   const guest = !!meta.guest;
+  const router = useRouter();
   const { data, loading, error } = useLiveData(initial);
   const { sourceRank: srcRank } = useLiveProfileMeta(meta, !guest);
   const sp = useSearchParams();
-  const router = useRouter();
   const f = meta.filters;
   const country = f.country || "",
     group = f.group || "",
@@ -68,7 +63,8 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const validStatus = (v: string | null): v is JobStatus => STAGES.some(([s]) => s === v);
   const tab = validMatch(sp.get("match")) ? sp.get("match")! : defaultTab;
   const statusFilter: JobStatus = validStatus(sp.get("status")) ? (sp.get("status") as JobStatus) : "listed";
-  const days = DAYS.some((d) => d.value === sp.get("days")) ? sp.get("days")! : "";
+  const rawDays = sp.get("days");
+  const days = LEGACY_DAYS[rawDays || ""] || (DAYS.some((d) => d.value === rawDays) ? rawDays! : "");
   const hydrated = useRef(false);
   const query = sp.get("q") ?? "";
   const setParams = useCallback(
@@ -89,8 +85,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const setStatusFilter = (v: JobStatus) => setParams({ status: v === "listed" ? null : v }, true);
   const setQuery = (v: string) => setParams({ q: v });
   const setDays = (v: string) => setParams({ days: v || null }, true);
-  const [marking, setMarking] = useState<string[]>([]),
-    [shown, setShown] = useState(PAGE);
+  const [shown, setShown] = useState(PAGE);
   const moreObs = useRef<IntersectionObserver | null>(null);
   // Callback ref, not a useEffect — the sentinel mounts late whenever `total`
   // grows (SSE/poll) while `shown`/`matched` stay put, and deps-based effects
@@ -109,14 +104,6 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     moreObs.current = obs;
   }, []);
   const matched = tab !== "all" && tab !== "profile";
-  const doMark = (id: string, st: "listed" | "applied" | "cancelled" | "ignored") => {
-    if (guest) {
-      router.push("/login");
-      return;
-    }
-    setMarking((m) => [...m, id]);
-    void mark(id, st).finally(() => setMarking((m) => m.filter((x) => x !== id)));
-  };
   const filterKey = [
     tab,
     country,
@@ -165,22 +152,14 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const name = countries.find((c) => c.code === country)?.name || group || "Everywhere";
   const terms = useMemo(() => (query ? [query.toLowerCase()] : []), [query]);
   const statuses = useMemo(() => data.statuses || {}, [data.statuses]);
-  const [dayCutoff, setDayCutoff] = useState(0);
-  useEffect(() => {
-    const t = requestAnimationFrame(() => {
-      const now = new Date();
-      setDayCutoff(
-        !days
-          ? 0
-          : days === "today"
-            ? new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-            : days === "yesterday"
-              ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
-              : Date.now() - (days === "3d" ? 3 : days === "7d" ? 7 : 30) * 86400000,
-      );
-    });
-    return () => cancelAnimationFrame(t);
-  }, [days]);
+  const now = useServerClock(data.serverAt, initial.serverAt || 0);
+  // Rolling windows anchored to server time — "Last 24h" means the past 24
+  // hours, so jobs marked applied/cancelled today aren't dropped just because
+  // they were posted before midnight.
+  const cutoff = useMemo(
+    () => (days && now ? now - (DAY_HOURS.find(([v]) => v === days)?.[2] || 720) * 3600000 : 0),
+    [days, now],
+  );
   const preStatus = useMemo(
     () =>
       data.jobs
@@ -190,7 +169,14 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             !terms.some((t) => `${j.title} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(t))
           )
             return false;
-          if (dayCutoff && !(Date.parse(j.posted) >= dayCutoff)) return false;
+          if (cutoff) {
+            // Recency by either measure: a job qualifies when it was posted in
+            // the window OR its pipeline status changed in the window — the
+            // Applied tab must find jobs applied today however old the post.
+            const recentPost = Date.parse(j.posted) >= cutoff;
+            const recentMark = (statuses[j.id]?.at || 0) >= cutoff;
+            if (!recentPost && !recentMark) return false;
+          }
           if (tab === "all") return true;
           if (source && j.source !== source) return false;
           if ((remote === "remote" && !j.remote) || (remote === "onsite" && j.remote)) return false;
@@ -207,25 +193,37 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           return scopeMatches(s, group) || (unknown && (s.unknown || s.uncertain));
         })
         .sort((a, b) => (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3) || b.posted.localeCompare(a.posted)),
-    [data.jobs, terms, tab, country, group, source, remote, remoteTo, sched, mode, unknown, srcRank, dayCutoff],
+    [data.jobs, statuses, terms, tab, country, group, source, remote, remoteTo, sched, mode, unknown, srcRank, cutoff],
   );
   const counts = useMemo(() => {
     const c: Record<string, number> = { listed: 0, applied: 0, cancelled: 0, ignored: 0 };
     for (const j of preStatus) {
-      const st = statuses[j.id]?.status || "listed";
-      if (st in c) c[st]++;
+      const se = statuses[j.id];
+      const st = se?.status || "listed";
+      if (!(st in c)) continue;
+      if (cutoff) {
+        const ok = st === "listed" ? Date.parse(j.posted) >= cutoff : (se?.at || 0) >= cutoff;
+        if (!ok) continue;
+      }
+      c[st]++;
     }
     return c;
-  }, [preStatus, statuses]);
+  }, [preStatus, statuses, cutoff]);
   const filtered = useMemo(() => {
-    const list =
+    let list =
       statusFilter === "all"
         ? preStatus
         : preStatus.filter((j) => (statuses[j.id]?.status || "listed") === statusFilter);
+    // The date window targets the active tab's own timestamp: Applied means
+    // *applied* in the window, Listed means *posted* in it, All means either.
+    if (cutoff && statusFilter === "listed")
+      list = list.filter((j) => Date.parse(j.posted) >= cutoff);
+    else if (cutoff && statusFilter !== "all")
+      list = list.filter((j) => (statuses[j.id]?.at || 0) >= cutoff);
     if (statusFilter === "applied" || statusFilter === "cancelled" || statusFilter === "ignored")
       return [...list].sort((a, b) => (statuses[b.id]?.at || 0) - (statuses[a.id]?.at || 0));
     return list;
-  }, [preStatus, statusFilter, statuses]);
+  }, [preStatus, statusFilter, statuses, cutoff]);
   const ranked = useMemo(() => {
     if (!matched) return [];
     const r = meta.resumes.find((x) => x.id === tab);
@@ -240,7 +238,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     group && `Region: ${group}`,
     country && `Excludes ${name}`,
     mode === "eligibility" && "Candidate eligibility",
-    source && `Source: ${catalog.find((c) => c.id === source)?.name || source}`,
+    source && `Source: ${sourceName(source)}`,
     sched && (sched === "full" ? "Full-time" : "Part-time"),
     remote === "remote" && "Remote only",
     remote === "onsite" && "On-site only",
@@ -286,45 +284,21 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
         <div className="tabs-row">
           {!guest && (
             <>
-              <div className="m-tabs" role="tablist" aria-label="Match source">
-                <button
-                  role="tab"
-                  aria-selected={tab === "profile"}
-                  className={"m-tab" + (tab === "profile" ? " on" : "")}
-                  onClick={() => setTab("profile")}
-                >
-                  <User size={13} /> Profile
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={tab === "all"}
-                  className={"m-tab" + (tab === "all" ? " on" : "")}
-                  onClick={() => setTab("all")}
-                >
-                  All listings
-                </button>
-                {meta.resumes.map((r) => (
-                  <button
-                    key={r.id}
-                    role="tab"
-                    aria-selected={tab === r.id}
-                    className={"m-tab" + (tab === r.id ? " on" : "")}
-                    onClick={() => setTab(r.id)}
-                  >
-                    <FileText size={13} /> {r.alias || r.name}
-                  </button>
-                ))}
-                {meta.manual.length > 0 && (
-                  <button
-                    role="tab"
-                    aria-selected={tab === "manual"}
-                    className={"m-tab" + (tab === "manual" ? " on" : "")}
-                    onClick={() => setTab("manual")}
-                  >
-                    Manual keywords
-                  </button>
-                )}
-              </div>
+              <PillTabs
+                value={tab}
+                onChange={setTab}
+                ariaLabel="Match source"
+                options={[
+                  { value: "profile", label: "Profile", icon: <User size={13} /> },
+                  { value: "all", label: "All listings" },
+                  ...meta.resumes.map((r) => ({
+                    value: r.id,
+                    label: r.alias || r.name,
+                    icon: <FileText size={13} />,
+                  })),
+                  ...(meta.manual.length > 0 ? [{ value: "manual", label: "Manual keywords" }] : []),
+                ]}
+              />
               <div className="m-view">
                 <Select
                   value={tab}
@@ -340,7 +314,17 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
               </div>
             </>
           )}
-          <Select compact value={days} onChange={setDays} options={DAYS} ariaLabel="Posted within" />
+          <PillTabs cls="m-tabs d-tabs" value={days} onChange={setDays} options={DAYS} ariaLabel="Date posted" />
+          <div className="d-view">
+            <Select
+              compact
+              value={days}
+              onChange={setDays}
+              options={DAYS}
+              ariaLabel="Date posted"
+              icon={<CalendarDays size={13} />}
+            />
+          </div>
         </div>
         <div className="section-title">
           <div>
@@ -367,7 +351,9 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                       : `${filtered.length} of ${data.jobs.length} jobs match your search preferences`}
             </p>
           </div>
-          <span className="pill green">{mode === "eligibility" ? "Candidate scope" : "Location matching"}</span>
+          {tab !== "all" && (
+            <span className="pill green">{mode === "eligibility" ? "Candidate scope" : "Location matching"}</span>
+          )}
         </div>
         {tab !== "all" && chips.length > 0 && (
           <div className="active-filters">
@@ -463,47 +449,42 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                 const se = statuses[j.id],
                   st = se?.status || "listed",
                   stAt = se?.at || 0;
+                const href = `/jobs/${encodeURIComponent(j.id)}`;
                 return (
                   <motion.article
                     key={j.id}
                     layout
                     className={"card-" + st}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`${j.title} at ${j.company}`}
+                    onClick={() => router.push(href)}
+                    onMouseMove={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
+                      e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
+                    }}
+                    onAuxClick={(e) => {
+                      if (e.button === 1) window.open(href, "_blank", "noopener");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") router.push(href);
+                    }}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
                     transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.4), ease: EASE }}
                   >
-                    {m ? (
-                      <div className="mscore" title="Keyword match score">
-                        <b>{m.score}</b>
-                        <span>match</span>
-                        <i className="mgauge">
-                          <i className="mfill" style={{ height: `${Math.min(100, m.score)}%` }} />
-                        </i>
-                      </div>
-                    ) : (
-                      <div className="company-icon">{j.company.slice(0, 2).toUpperCase()}</div>
-                    )}
+                    <JobHead j={j} m={m} st={st} stAt={stAt} now={now} />
                     <div className="job-content">
-                      <div className="job-top">
-                        <span className="job-via">
-                          {j.company} · via <Favicon source={j.source} />{" "}
-                          {catalog.find((c) => c.id === j.source)?.name || j.source}
-                        </span>
-                        <span className="job-st">
-                          {st !== "listed" && (
-                            <span
-                              className={"pill" + (st === "applied" ? " green" : st === "cancelled" ? " amber" : "")}
-                            >
-                              {st[0].toUpperCase() + st.slice(1)}
-                              {stAt ? " · " + new Date(stAt).toLocaleDateString() : ""}
-                            </span>
-                          )}
-                          {j.posted ? new Date(j.posted).toLocaleDateString() : "Date unavailable"}
-                        </span>
-                      </div>
                       <h3>
-                        <a href={j.url} target="_blank" rel="noreferrer">
+                        <a
+                          href={j.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          onAuxClick={(e) => e.stopPropagation()}
+                        >
                           {j.title} <ArrowUpRight size={13} />
                         </a>
                       </h3>
@@ -511,20 +492,9 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                         <MapPin size={12} /> {j.location}
                       </p>
                       <div className="tags">
-                        {j.remote ? (
-                          <span className="pill green">Remote</span>
-                        ) : /hybrid/i.test(j.location) ? (
-                          <span className="pill amber">Hybrid</span>
-                        ) : (
-                          <span className="pill">On-site</span>
-                        )}
+                        <RemotePill j={j} />
                         {(srcRank[j.source] ?? 3) >= 4 && <span className="pill">Priority feed</span>}
-                        {m?.hits.slice(0, 6).map((k) => (
-                          <span className="pill kw-hit" key={k}>
-                            {k}
-                          </span>
-                        ))}
-                        {m && m.hits.length > 6 && <span className="pill">+{m.hits.length - 6} more</span>}
+                        <HitPills hits={m?.hits} max={6} />
                         {j.scope.groups.map((g) => (
                           <span className="pill" key={g}>
                             {g} · group match
@@ -537,42 +507,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                           <span className="pill amber">Restrictions need review</span>
                         )}
                       </div>
-                      <details>
-                        <summary>Location evidence & details</summary>
-                        <p>Listed location: {j.scope.raw || "Not supplied"}</p>
-                        <p>Candidate scope: {j.eligibility.raw || "Not supplied; no eligibility assumed"}</p>
-                        <p>{j.summary}</p>
-                        <a href={j.url} target="_blank" rel="noreferrer">
-                          View original on {catalog.find((c) => c.id === j.source)?.name} <ArrowUpRight size={12} />
-                        </a>
-                      </details>
-                      <div className="job-actions">
-                        {st !== "applied" && (
-                          <button
-                            className="act-on"
-                            disabled={marking.includes(j.id)}
-                            onClick={() => doMark(j.id, "applied")}
-                          >
-                            Mark applied
-                          </button>
-                        )}
-                        {st !== "cancelled" && (
-                          <button disabled={marking.includes(j.id)} onClick={() => doMark(j.id, "cancelled")}>
-                            Mark cancelled
-                          </button>
-                        )}
-                        {st !== "ignored" && (
-                          <button disabled={marking.includes(j.id)} onClick={() => doMark(j.id, "ignored")}>
-                            Ignore
-                          </button>
-                        )}
-                        {st !== "listed" && (
-                          <button disabled={marking.includes(j.id)} onClick={() => doMark(j.id, "listed")}>
-                            Back to listed
-                          </button>
-                        )}
-                        {marking.includes(j.id) && <Spinner size={15} className="act-spin" />}
-                      </div>
+                      <JobActions id={j.id} st={st} guest={guest} />
                     </div>
                   </motion.article>
                 );

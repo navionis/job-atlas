@@ -1,10 +1,10 @@
-import { getSession } from "../../../lib/auth";
+import { getSession, unauthorized } from "../../../lib/auth";
 import { isAdminUser, setAdmin, listUsers } from "../../../lib/feeds";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   if (!(await isAdminUser(me.email))) return Response.json({ error: "Admin only" }, { status: 403 });
   try {
     const { email, admin } = await request.json();

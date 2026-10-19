@@ -1,3 +1,4 @@
+export const sourceName = (sourceId: string) => catalog.find((c) => c.id === sourceId.split(":")[0])?.name || sourceId;
 export const catalog = [
   {
     id: "ziprecruiter",

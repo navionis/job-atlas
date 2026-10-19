@@ -1,7 +1,19 @@
 import type { MetadataRoute } from "next";
+import { snapshot } from "../lib/feeds";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = process.env.APP_ORIGIN || "http://localhost:3000";
+  const snap = await snapshot("").catch(() => null);
+  const jobs: MetadataRoute.Sitemap = (snap?.jobs || [])
+    .filter((j) => j.posted)
+    .sort((a, b) => b.posted.localeCompare(a.posted))
+    .slice(0, 200)
+    .map((j) => ({
+      url: `${origin}/jobs/${encodeURIComponent(j.id)}`,
+      lastModified: new Date(j.posted),
+      changeFrequency: "daily",
+      priority: 0.6,
+    }));
   return [
     {
       url: origin,
@@ -27,5 +39,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.5,
     },
+    ...jobs,
   ];
 }

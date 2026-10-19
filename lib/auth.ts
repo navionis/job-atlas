@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
 export type Session = { email: string; name: string; picture: string };
 const SESSION_AGE = 7 * 24 * 3600 * 1000;
 export function sessionCookieHeader(s: Session, secure: boolean): string | null {
@@ -16,6 +17,11 @@ export function getSession(request: Request): Session | null {
     .find((x) => x.startsWith("atlas_session="));
   return raw ? verifySessionValue(decodeURIComponent(raw.slice("atlas_session=".length))) : null;
 }
+/** Session from the current request's cookie store (server components/pages). */
+export async function currentSession(): Promise<Session | null> {
+  return verifySessionValue((await cookies()).get("atlas_session")?.value);
+}
+export const unauthorized = () => Response.json({ error: "Sign in required" }, { status: 401 });
 export function verifySessionValue(value: string | undefined | null): Session | null {
   // Fail closed: an empty AUTH_SECRET would sign sessions with a known key,
   // making every session forgeable. Reject everything instead.

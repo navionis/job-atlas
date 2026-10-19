@@ -6,7 +6,8 @@ export async function GET(request: Request) {
   const me = getSession(request);
   try {
     // Guests get the shared feed with no per-user statuses.
-    return Response.json(await snapshot(me?.email || ""), { headers: { "Cache-Control": "no-store" } });
+    const data = await snapshot(me?.email || "");
+    return Response.json({ ...data, serverAt: Date.now() }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return Response.json(
       { error: "Feed storage unavailable. Check server DATA_DIR permissions and state file." },

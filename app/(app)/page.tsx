@@ -1,6 +1,5 @@
-import { cookies } from "next/headers";
-import { verifySessionValue } from "../../lib/auth";
-import { snapshot } from "../../lib/feeds";
+import { currentSession } from "../../lib/auth";
+import { loadSnapshot } from "../../lib/feeds";
 import DashboardClient from "./dashboard-client";
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -9,13 +8,7 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 export default async function Home() {
-  const store = await cookies();
-  const email = verifySessionValue(store.get("atlas_session")?.value)?.email || "";
-  const initial = await snapshot(email).catch(() => ({
-    jobs: [],
-    sources: [],
-    statuses: {},
-    updatedAt: 0,
-  }));
+  const email = (await currentSession())?.email || "";
+  const initial = await loadSnapshot(email);
   return <DashboardClient initial={initial} />;
 }

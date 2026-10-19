@@ -70,8 +70,14 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family:
-    var(--font-inter),
-    "Inter",
+    var(--font-sans),
+    var(--font-jp),
+    var(--font-kr),
+    var(--font-sc),
+    var(--font-tc),
+    var(--font-arabic),
+    var(--font-hebrew),
+    var(--font-thai),
     -apple-system,
     "Segoe UI",
     Arial,
@@ -692,15 +698,22 @@ select {
 }
 .cards {
   display: grid;
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 14px;
 }
 article {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 18px 20px;
+  padding: 16px 18px;
   display: flex;
-  gap: 14px;
+  flex-direction: column;
+  gap: 10px;
+}
+.job-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 article:hover {
   border-color: var(--accent-line);
@@ -722,8 +735,12 @@ article:hover {
 .job-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .job-top {
+  flex: 1;
+  min-width: 0;
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -745,7 +762,7 @@ article:hover {
 }
 article h3 {
   font-size: 16px;
-  margin: 8px 0 10px;
+  margin: 0 0 8px;
   letter-spacing: -0.3px;
   line-height: 1.45;
   font-weight: 600;
@@ -783,7 +800,129 @@ article.card-ignored {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+.cards article {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.2s ease;
+}
+/* Cursor-tracked spotlight: a soft radial glow that follows the pointer… */
+.cards article::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    340px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 12%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+/* …plus a gradient border that ignites where the pointer is. */
+.cards article::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(
+    180px circle at var(--mx, 50%) var(--my, 50%),
+    var(--accent),
+    color-mix(in srgb, var(--accent) 35%, transparent) 45%,
+    transparent 70%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+.cards article:hover {
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-lg);
+}
+.cards article:hover::after,
+.cards article:hover::before {
+  opacity: 1;
+}
+.cards article:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.jd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.jd-back:hover {
+  color: var(--accent);
+}
+.jd-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.jd-title {
+  font-size: 20px;
+  letter-spacing: -0.4px;
+  line-height: 1.3;
+  margin: 0;
+}
+.jd-h {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  margin: 0 0 8px;
+}
+.jd-raw {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.7;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+.jd-summary {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink);
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.jd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.jd-grid .pf-card {
+  margin: 0;
+}
+.jd-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .job-actions .act-on {
   color: var(--accent);
@@ -1870,6 +2009,14 @@ td a svg {
   .m-view .sel {
     margin-top: 0;
   }
+  .d-tabs {
+    display: none;
+  }
+  .d-view {
+    display: block;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
   .tabs-row .sel {
     flex-shrink: 0;
   }
@@ -1920,7 +2067,7 @@ td a svg {
 .pf-wrap {
   max-width: 1200px;
   margin: 0 auto;
-  padding-bottom: 40px;
+  padding: 32px 0 40px;
 }
 .pf-account {
   display: flex;
@@ -2169,7 +2316,7 @@ td a svg {
 }
 @media (max-width: 650px) {
   .pf-wrap {
-    padding: 0 0 30px;
+    padding: 20px 0 30px;
   }
   .pf-card {
     padding: 16px;
@@ -2346,6 +2493,12 @@ article {
 .sel-btn:disabled {
   opacity: 0.45;
 }
+.sel-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  margin-right: 6px;
+}
 .sel-value {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2516,36 +2669,35 @@ article {
   white-space: normal;
 }
 .mscore {
-  width: 44px;
+  width: 38px;
+  height: 38px;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding-top: 4px;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 .mscore b {
-  font-size: 19px;
+  position: relative;
+  z-index: 1;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.6px;
   line-height: 1;
 }
 .mscore span {
-  font-size: 8px;
+  position: relative;
+  z-index: 1;
+  font-size: 7px;
   text-transform: uppercase;
   letter-spacing: 0.9px;
   font-weight: 700;
   color: var(--muted);
-}
-.mgauge {
-  flex: 1;
-  width: 4px;
-  min-height: 30px;
-  border-radius: 2px;
-  background: var(--surface-2);
-  position: relative;
-  overflow: hidden;
-  display: block;
 }
 .mfill {
   position: absolute;
@@ -2553,7 +2705,7 @@ article {
   left: 0;
   right: 0;
   background: var(--grad);
-  border-radius: 2px;
+  opacity: 0.2;
   display: block;
   transition: height 0.4s ease;
 }
@@ -2589,6 +2741,16 @@ article {
   flex-shrink: 0;
 }
 .m-view {
+  display: none;
+}
+.d-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  margin-bottom: 14px;
+}
+.d-view {
   display: none;
 }
 .m-tab {

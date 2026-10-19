@@ -1,5 +1,10 @@
 import { Pool } from "pg";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { and, eq, or, sql } from "drizzle-orm";
+import * as tables from "./schema";
+import { admins, feedAttempts, feedDisabled, feedState, jobs as jobsTable, jobStatusUser, profiles } from "./schema";
 import type { Job, StatusEntry } from "./types";
+
 type Entry = { jobs: Job[]; next: number; fetched: number; status: string; detail: string };
 export type StoreState = {
   entries: Record<string, Entry>;
@@ -9,13 +14,18 @@ export type StoreState = {
   disabled: string[];
   admins: string[];
 };
-let pool: Pool | undefined, schema: Promise<Pool> | undefined;
+
+let pool: Pool | undefined, db: NodePgDatabase<typeof tables> | undefined, boot: Promise<Pool> | undefined;
+
+/** timestamptz reads — Date from node-pg, string from pg-mem. */
+const ts = (v: Date | string | null | undefined) => (v instanceof Date ? v.getTime() : new Date(v || 0).getTime() || 0);
+
 export function pgEnabled() {
   return !!process.env.DATABASE_URL;
 }
 export async function dbPing(): Promise<boolean> {
   try {
-    await (await client()).query("select 1");
+    await (await conn()).pool.query("select 1");
     return true;
   } catch {
     return false;
@@ -35,13 +45,36 @@ function connStr() {
   }
 }
 export function setPoolForTesting(p: Pool | undefined) {
+  if (p) {
+    // pg-mem lacks getTypeParser and rowMode:"array" — strip both and emulate
+    // array rows from the fields list so drizzle's mapper sees what it expects.
+    const raw = p.query.bind(p) as any;
+    (p as any).query = (config: any, values?: any, cb?: any) => {
+      // pg-mem only honors query(text, values) — unwrap drizzle's config object
+      // (it can't run getTypeParser/rowMode anyway), then emulate array rows
+      // from the fields list so drizzle's mapper sees what it expects.
+      const wantArray = config && typeof config === "object" && config.rowMode === "array";
+      const res = raw(typeof config === "object" ? config.text : config, values, cb);
+      if (!wantArray || typeof res?.then !== "function") return res;
+      return res.then((r: any) => {
+        if (!r?.rows) return r;
+        // pg-mem emits an empty fields list; its row objects preserve select
+        // order, so Object.values is a faithful array-row emulation.
+        const toArr = r.fields?.length
+          ? (row: any) => r.fields.map((f: any) => row[f.name])
+          : (row: any) => Object.values(row);
+        return { ...r, rows: r.rows.map(toArr) };
+      });
+    };
+  }
   pool = p;
-  schema = undefined;
+  db = p ? drizzle(p, { schema: tables }) : undefined;
+  boot = undefined;
 }
-async function client(): Promise<Pool> {
+async function conn(): Promise<{ pool: Pool; db: NodePgDatabase<typeof tables> }> {
   if (!pgEnabled()) throw new Error("DATABASE_URL is not configured");
-  if (!schema)
-    schema = (async () => {
+  if (!boot)
+    boot = (async () => {
       if (!pool) {
         pool = new Pool({
           connectionString: connStr(),
@@ -51,7 +84,10 @@ async function client(): Promise<Pool> {
           ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
         });
         pool.on("error", () => {});
+        db = drizzle(pool, { schema: tables });
       }
+      // Table DDL stays raw — idempotent bootstrap is the deployment's
+      // zero-config path; drizzle-kit can diff ./schema.ts for managed migrations.
       await pool.query(
         `create table if not exists feed_state(feed_id text primary key,jobs jsonb not null default '[]',next_fetch bigint not null default 0,fetched_at bigint not null default 0,status text not null default '',detail text not null default '')`,
       );
@@ -63,12 +99,24 @@ async function client(): Promise<Pool> {
       );
       await pool.query(`create index if not exists jobs_source_idx on jobs(source)`);
       await pool.query(`create index if not exists jobs_posted_idx on jobs(posted desc)`);
+      await pool.query(`create index if not exists jobs_company_idx on jobs(company)`);
+      await pool.query(`create index if not exists jobs_last_seen_idx on jobs(last_seen desc)`);
+      // Remote-first queries hit a compact partial index instead of full scans.
+      await pool.query(
+        `create index if not exists jobs_remote_posted_idx on jobs(posted desc) where remote`,
+      );
+      // Tag containment lookups (tags @> '["react"]') use jsonb_path_ops GIN.
+      await pool.query(`create index if not exists jobs_tags_gin on jobs using gin(tags jsonb_path_ops)`);
       await pool.query(
         `create table if not exists job_status(job_id text primary key,status text not null,updated timestamptz not null default now())`,
       );
       await pool.query(
         `create table if not exists job_status_user(email text not null,job_id text not null,status text not null,updated timestamptz not null default now(),primary key(email,job_id))`,
       );
+      // Reverse direction of the (email,job_id) PK: who marked a given job.
+      await pool.query(`create index if not exists job_status_user_job_idx on job_status_user(job_id)`);
+      // "Recent pipeline activity" lookups across a user's marks.
+      await pool.query(`create index if not exists job_status_user_updated_idx on job_status_user(updated desc)`);
       // Migrate pre-auth global statuses into a legacy bucket shared until a user adopts them.
       await pool.query(
         `insert into job_status_user(email,job_id,status,updated) select '*',job_id,status,updated from job_status on conflict do nothing`,
@@ -78,143 +126,176 @@ async function client(): Promise<Pool> {
       await pool.query(`create table if not exists admins(email text primary key)`);
       return pool;
     })().catch((e) => {
-      schema = undefined;
+      boot = undefined;
       throw e;
     });
-  return schema;
+  await boot;
+  return { pool: pool!, db: db! };
 }
+
 export async function loadState(): Promise<StoreState | null> {
   try {
-    const p = await client();
+    const { db } = await conn();
     const [e, a, s, d, adm] = await Promise.all([
-      p.query(`select feed_id,jobs,next_fetch,fetched_at,status,detail from feed_state`),
-      p.query(`select scope,attempts,lifetime from feed_attempts`),
-      p.query(`select email,job_id,status,updated from job_status_user`),
-      p.query(`select feed_id from feed_disabled`),
-      p.query(`select email from admins`),
+      db.select().from(feedState),
+      db.select().from(feedAttempts),
+      db.select().from(jobStatusUser),
+      db.select().from(feedDisabled),
+      db.select().from(admins),
     ]);
     const state: StoreState = {
       entries: {},
       attempts: {},
       lifetime: {},
       statuses: {},
-      disabled: d.rows.map((r) => r.feed_id),
-      admins: adm.rows.map((r) => r.email),
+      disabled: d.map((r) => r.feedId),
+      admins: adm.map((r) => r.email),
     };
-    for (const r of e.rows)
-      state.entries[r.feed_id] = {
+    for (const r of e)
+      state.entries[r.feedId] = {
         jobs: r.jobs,
-        next: Number(r.next_fetch),
-        fetched: Number(r.fetched_at),
+        next: r.nextFetch,
+        fetched: r.fetchedAt,
         status: r.status,
         detail: r.detail,
       };
-    for (const r of a.rows) {
+    for (const r of a) {
       state.attempts[r.scope] = r.attempts;
-      state.lifetime[r.scope] = Number(r.lifetime);
+      state.lifetime[r.scope] = r.lifetime;
     }
-    for (const r of s.rows)
+    for (const r of s)
       if (["listed", "applied", "cancelled", "ignored"].includes(r.status))
-        (state.statuses[r.email] ??= {})[r.job_id] = {
+        (state.statuses[r.email] ??= {})[r.jobId] = {
           status: r.status,
-          at: new Date(r.updated || 0).getTime() || 0,
+          at: ts(r.updated),
         };
     return state;
   } catch {
     return null;
   }
 }
-async function insertRows(p: Pool, rows: any[][], cols: number, sql: (ph: string) => string) {
-  for (let i = 0; i < rows.length; i += 100) {
-    const chunk = rows.slice(i, i + 100),
-      vals: any[] = [];
-    const ph = chunk.map((r, k) => {
-      vals.push(...r);
-      return "(" + r.map((_, j) => "$" + (k * cols + j + 1)).join(",") + ")";
-    });
-    await p.query(sql(ph.join(",")), vals);
-  }
+
+/** Chunked insert — keeps parameter counts sane on large batches. */
+async function insertChunks<T>(rows: T[], run: (chunk: T[]) => Promise<unknown>) {
+  for (let i = 0; i < rows.length; i += 100) await run(rows.slice(i, i + 100));
 }
+
 export async function saveState(state: StoreState) {
   try {
-    const p = await client();
-    await insertRows(
-      p,
-      Object.entries(state.entries).map(([id, e]) => [
-        id,
-        JSON.stringify(e.jobs),
-        e.next,
-        e.fetched,
-        e.status,
-        e.detail,
-      ]),
-      6,
-      (ph) =>
-        `insert into feed_state(feed_id,jobs,next_fetch,fetched_at,status,detail) values ${ph} on conflict(feed_id) do update set jobs=excluded.jobs,next_fetch=excluded.next_fetch,fetched_at=excluded.fetched_at,status=excluded.status,detail=excluded.detail`,
+    const { db } = await conn();
+    await insertChunks(
+      Object.entries(state.entries).map(([feedId, e]) => ({
+        feedId,
+        jobs: e.jobs,
+        nextFetch: e.next,
+        fetchedAt: e.fetched,
+        status: e.status,
+        detail: e.detail,
+      })),
+      (rows) =>
+        db
+          .insert(feedState)
+          .values(rows)
+          .onConflictDoUpdate({
+            target: feedState.feedId,
+            set: {
+              jobs: sql`excluded.jobs`,
+              nextFetch: sql`excluded.next_fetch`,
+              fetchedAt: sql`excluded.fetched_at`,
+              status: sql`excluded.status`,
+              detail: sql`excluded.detail`,
+            },
+          }),
     );
-    await insertRows(
-      p,
-      Object.entries(state.attempts).map(([scope, a]) => [scope, JSON.stringify(a), state.lifetime[scope] || 0]),
-      3,
-      (ph) =>
-        `insert into feed_attempts(scope,attempts,lifetime) values ${ph} on conflict(scope) do update set attempts=excluded.attempts,lifetime=excluded.lifetime`,
+    await insertChunks(
+      Object.entries(state.attempts).map(([scope, attempts]) => ({
+        scope,
+        attempts,
+        lifetime: state.lifetime[scope] || 0,
+      })),
+      (rows) =>
+        db
+          .insert(feedAttempts)
+          .values(rows)
+          .onConflictDoUpdate({
+            target: feedAttempts.scope,
+            set: { attempts: sql`excluded.attempts`, lifetime: sql`excluded.lifetime` },
+          }),
     );
     // User-owned rows (statuses, disabled feeds, admins) are written by the
     // targeted ops below — never bulk-reconciled here, or a stale in-memory
     // copy from another process would clobber fresh marks/toggles.
   } catch {}
 }
+
 export async function dbSetJobStatus(email: string, jobId: string, status: string, at: number) {
   try {
-    const p = await client();
-    await p.query(
-      `insert into job_status_user(email,job_id,status,updated) values($1,$2,$3,$4)
-       on conflict(email,job_id) do update set status=excluded.status,updated=excluded.updated`,
-      [email, jobId, status, new Date(at || Date.now()).toISOString()],
-    );
+    const { db } = await conn();
+    const updated = new Date(at || Date.now());
+    await db
+      .insert(jobStatusUser)
+      .values({ email, jobId, status: status as StatusEntry["status"], updated })
+      .onConflictDoUpdate({
+        target: [jobStatusUser.email, jobStatusUser.jobId],
+        set: { status: sql`excluded.status`, updated: sql`excluded.updated` },
+      });
   } catch {}
 }
 export async function dbDeleteJobStatus(email: string, jobId: string) {
   try {
-    const p = await client();
-    await p.query(`delete from job_status_user where email=$1 and job_id=$2`, [email, jobId]);
+    const { db } = await conn();
+    await db.delete(jobStatusUser).where(and(eq(jobStatusUser.email, email), eq(jobStatusUser.jobId, jobId)));
   } catch {}
 }
-export async function dbSaveFeed(
-  id: string,
-  e: { jobs: Job[]; next: number; fetched: number; status: string; detail: string },
-) {
+export async function dbSaveFeed(id: string, e: Entry) {
   try {
-    const p = await client();
-    await p.query(
-      `insert into feed_state(feed_id,jobs,next_fetch,fetched_at,status,detail) values($1,$2,$3,$4,$5,$6)
-       on conflict(feed_id) do update set jobs=excluded.jobs,next_fetch=excluded.next_fetch,fetched_at=excluded.fetched_at,status=excluded.status,detail=excluded.detail`,
-      [id, JSON.stringify(e.jobs), e.next, e.fetched, e.status, e.detail],
-    );
+    const { db } = await conn();
+    await db
+      .insert(feedState)
+      .values({
+        feedId: id,
+        jobs: e.jobs,
+        nextFetch: e.next,
+        fetchedAt: e.fetched,
+        status: e.status,
+        detail: e.detail,
+      })
+      .onConflictDoUpdate({
+        target: feedState.feedId,
+        set: {
+          jobs: sql`excluded.jobs`,
+          nextFetch: sql`excluded.next_fetch`,
+          fetchedAt: sql`excluded.fetched_at`,
+          status: sql`excluded.status`,
+          detail: sql`excluded.detail`,
+        },
+      });
   } catch {}
 }
 export async function dbSaveAttempts(scope: string, attempts: number[], lifetime: number) {
   try {
-    const p = await client();
-    await p.query(
-      `insert into feed_attempts(scope,attempts,lifetime) values($1,$2,$3)
-       on conflict(scope) do update set attempts=excluded.attempts,lifetime=excluded.lifetime`,
-      [scope, JSON.stringify(attempts), lifetime],
-    );
+    const { db } = await conn();
+    await db
+      .insert(feedAttempts)
+      .values({ scope, attempts, lifetime })
+      .onConflictDoUpdate({
+        target: feedAttempts.scope,
+        set: { attempts: sql`excluded.attempts`, lifetime: sql`excluded.lifetime` },
+      });
   } catch {}
 }
 export async function dbListJobStatuses(email: string): Promise<Record<string, StatusEntry> | null> {
   try {
-    const p = await client();
-    const { rows } = await p.query(
-      `select job_id,status,updated from job_status_user where email=$1 or email='*'
-       order by case when email='*' then 0 else 1 end`,
-      [email],
-    );
+    const { db } = await conn();
+    const rows = await db
+      .select()
+      .from(jobStatusUser)
+      .where(or(eq(jobStatusUser.email, email), eq(jobStatusUser.email, "*")))
+      .orderBy(sql`case when ${jobStatusUser.email} = '*' then 0 else 1 end`);
     const out: Record<string, StatusEntry> = {};
     for (const r of rows)
       if (["listed", "applied", "cancelled", "ignored"].includes(r.status))
-        out[r.job_id] = { status: r.status, at: new Date(r.updated || 0).getTime() || 0 };
+        out[r.jobId] = { status: r.status, at: ts(r.updated) };
     return out;
   } catch {
     return null;
@@ -222,67 +303,81 @@ export async function dbListJobStatuses(email: string): Promise<Record<string, S
 }
 export async function dbSetFeedDisabled(id: string, on: boolean) {
   try {
-    const p = await client();
-    if (on) await p.query(`insert into feed_disabled(feed_id) values($1) on conflict do nothing`, [id]);
-    else await p.query(`delete from feed_disabled where feed_id=$1`, [id]);
+    const { db } = await conn();
+    if (on) await db.insert(feedDisabled).values({ feedId: id }).onConflictDoNothing();
+    else await db.delete(feedDisabled).where(eq(feedDisabled.feedId, id));
   } catch {}
 }
 export async function dbSetAdmin(email: string, on: boolean) {
   try {
-    const p = await client();
-    if (on) await p.query(`insert into admins(email) values($1) on conflict do nothing`, [email]);
-    else await p.query(`delete from admins where email=$1`, [email]);
+    const { db } = await conn();
+    if (on) await db.insert(admins).values({ email }).onConflictDoNothing();
+    else await db.delete(admins).where(eq(admins.email, email));
   } catch {}
 }
 export async function dbListProfileEmails(): Promise<string[]> {
   try {
-    const p = await client();
-    const r = await p.query(`select email from profiles`);
-    return r.rows.map((x: any) => x.email);
+    const { db } = await conn();
+    const rows = await db.select({ email: profiles.email }).from(profiles);
+    return rows.map((r) => r.email);
   } catch {
     return [];
   }
 }
 export async function dbLoadProfile(email: string): Promise<any | null> {
   try {
-    const p = await client();
-    const r = await p.query(`select data from profiles where email=$1`, [email]);
-    return r.rows[0]?.data || null;
+    const { db } = await conn();
+    const rows = await db.select({ data: profiles.data }).from(profiles).where(eq(profiles.email, email));
+    return rows[0]?.data || null;
   } catch {
     return null;
   }
 }
 export async function dbSaveProfile(email: string, data: any) {
   try {
-    const p = await client();
-    await p.query(
-      `insert into profiles(email,data) values($1,$2::jsonb) on conflict(email) do update set data=excluded.data`,
-      [email, JSON.stringify(data)],
-    );
+    const { db } = await conn();
+    await db
+      .insert(profiles)
+      .values({ email, data })
+      .onConflictDoUpdate({ target: profiles.email, set: { data: sql`excluded.data` } });
   } catch {}
 }
-export async function upsertJobs(jobs: Job[]) {
+export async function upsertJobs(rows: Job[]) {
   try {
-    const p = await client();
-    await insertRows(
-      p,
-      jobs.map((j) => [
-        j.id,
-        j.source,
-        j.title,
-        j.company,
-        j.url,
-        j.location,
-        j.remote,
-        j.posted || null,
-        JSON.stringify(j.tags),
-        JSON.stringify(j.scope),
-        JSON.stringify(j.eligibility),
-        j.summary,
-      ]),
-      12,
-      (ph) =>
-        `insert into jobs(job_id,source,title,company,url,location,remote,posted,tags,scope,eligibility,summary) values ${ph} on conflict(job_id) do update set title=excluded.title,company=excluded.company,url=excluded.url,location=excluded.location,remote=excluded.remote,posted=excluded.posted,tags=excluded.tags,summary=excluded.summary,last_seen=now()`,
+    const { db } = await conn();
+    await insertChunks(
+      rows.map((j) => ({
+        jobId: j.id,
+        source: j.source,
+        title: j.title,
+        company: j.company,
+        url: j.url,
+        location: j.location,
+        remote: j.remote,
+        posted: j.posted ? new Date(j.posted) : null,
+        tags: j.tags,
+        scope: j.scope,
+        eligibility: j.eligibility,
+        summary: j.summary,
+      })),
+      (chunk) =>
+        db
+          .insert(jobsTable)
+          .values(chunk)
+          .onConflictDoUpdate({
+            target: jobsTable.jobId,
+            set: {
+              title: sql`excluded.title`,
+              company: sql`excluded.company`,
+              url: sql`excluded.url`,
+              location: sql`excluded.location`,
+              remote: sql`excluded.remote`,
+              posted: sql`excluded.posted`,
+              tags: sql`excluded.tags`,
+              summary: sql`excluded.summary`,
+              lastSeen: sql`now()`,
+            },
+          }),
     );
   } catch {}
 }

@@ -1,11 +1,11 @@
-import { getSession } from "../../../lib/auth";
+import { getSession, unauthorized } from "../../../lib/auth";
 import { setJobStatus } from "../../../lib/feeds";
 import type { JobStatus } from "../../../lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   try {
     const { id, status } = await request.json();
     if (typeof id !== "string" || !id || !["listed", "applied", "cancelled", "ignored"].includes(status))

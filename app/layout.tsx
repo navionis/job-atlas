@@ -1,15 +1,36 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Suspense } from "react";
-import { Inter } from "next/font/google";
+import {
+  Noto_Sans,
+  Noto_Sans_JP,
+  Noto_Sans_KR,
+  Noto_Sans_SC,
+  Noto_Sans_TC,
+  Noto_Sans_Arabic,
+  Noto_Sans_Hebrew,
+  Noto_Sans_Thai,
+} from "next/font/google";
 import NextTopLoader from "nextjs-toploader";
 import { AppToaster } from "../components/toaster";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-inter" });
+const sans = Noto_Sans({
+  subsets: ["latin", "latin-ext", "cyrillic", "cyrillic-ext", "greek", "greek-ext", "vietnamese", "devanagari"],
+  variable: "--font-sans",
+});
+const jp = Noto_Sans_JP({ variable: "--font-jp" });
+const kr = Noto_Sans_KR({ variable: "--font-kr" });
+const sc = Noto_Sans_SC({ variable: "--font-sc" });
+const tc = Noto_Sans_TC({ variable: "--font-tc" });
+const arabic = Noto_Sans_Arabic({ variable: "--font-arabic" });
+const hebrew = Noto_Sans_Hebrew({ variable: "--font-hebrew" });
+const thai = Noto_Sans_Thai({ variable: "--font-thai" });
+const fonts = [sans, jp, kr, sc, tc, arabic, hebrew, thai].map((f) => f.variable).join(" ");
 const ORIGIN = process.env.APP_ORIGIN || "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(ORIGIN),
+  alternates: { canonical: "/" },
   title: {
     default: "Job Atlas — Work without borders",
     template: "%s — Job Atlas",
@@ -36,10 +57,33 @@ export const metadata: Metadata = {
     description: "Country-aware job discovery across public and configured job feeds.",
   },
 };
+const jsonLd = (o: object) => JSON.stringify(o).replace(/</g, "\\u003c");
+const ldSite = jsonLd([
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Job Atlas",
+    url: ORIGIN,
+    logo: `${ORIGIN}/favicon.svg`,
+    slogan: "Work without borders",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Job Atlas",
+    url: ORIGIN,
+    potentialAction: {
+      "@type": "SearchAction",
+      target: { "@type": "EntryPoint", urlTemplate: `${ORIGIN}/jobs?q={search_term_string}` },
+      "query-input": "required name=search_term_string",
+    },
+  },
+]);
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={inter.variable}>
+    <html lang="en" suppressHydrationWarning className={fonts}>
       <head>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldSite }} />
         <Script
           id="theme-init"
           strategy="beforeInteractive"

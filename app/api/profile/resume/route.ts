@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { getSession } from "../../../../lib/auth";
+import { getSession, unauthorized } from "../../../../lib/auth";
 import { getProfile, saveProfile, effectiveKeywords, extractKeywords } from "../../../../lib/profiles";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ const view = (p: { keywords: string[]; excluded: string[]; resumes: { text: stri
 });
 export async function POST(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   let f: File | null = null;
   try {
     f = (await request.formData()).get("file") as File | null;
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 }
 export async function PATCH(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   const body = await request.json().catch(() => ({}));
   const id = String(body.id || "");
   const alias = String(body.alias ?? "")
@@ -70,7 +70,7 @@ export async function PATCH(request: Request) {
 }
 export async function DELETE(request: Request) {
   const me = getSession(request);
-  if (!me) return Response.json({ error: "Sign in required" }, { status: 401 });
+  if (!me) return unauthorized();
   const id = new URL(request.url).searchParams.get("id") || "";
   const p = await getProfile(me.email);
   p.resumes = (p.resumes || []).filter((r) => r.id !== id);

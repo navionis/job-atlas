@@ -32,7 +32,9 @@ export async function GET(request: Request) {
           const sig = data.updatedAt + ":" + JSON.stringify(data.statuses);
           if (sig !== lastSig && !closed) {
             lastSig = sig;
-            controller.enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(data)}\n\n`));
+            controller.enqueue(
+              encoder.encode(`event: snapshot\ndata: ${JSON.stringify({ ...data, serverAt: Date.now() })}\n\n`),
+            );
           }
         } catch {
           if (!closed)

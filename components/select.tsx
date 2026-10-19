@@ -12,6 +12,7 @@ export function Select({
   ariaLabel,
   compact,
   disabled,
+  icon,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -19,6 +20,7 @@ export function Select({
   ariaLabel?: string;
   compact?: boolean;
   disabled?: boolean;
+  icon?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -68,6 +70,7 @@ export function Select({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
+        {icon && <span className="sel-icon">{icon}</span>}
         <span className="sel-value">{current?.label ?? value}</span>
         <ChevronDown size={13} className={"sel-chev" + (open ? " up" : "")} />
       </button>

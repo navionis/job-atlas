@@ -1,6 +1,5 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifySessionValue } from "../../../lib/auth";
+import { currentSession } from "../../../lib/auth";
 import { isAdminUser } from "../../../lib/feeds";
 import { FadeIn } from "../../../components/motion";
 import { ShieldCheck } from "lucide-react";
@@ -9,7 +8,7 @@ import AdminTabs from "./admin-tabs";
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const me = verifySessionValue((await cookies()).get("atlas_session")?.value);
+  const me = await currentSession();
   if (!me) redirect("/login");
   if (!(await isAdminUser(me.email))) redirect("/");
   return (

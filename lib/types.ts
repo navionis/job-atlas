@@ -29,6 +29,7 @@ export type Snapshot = {
   sources: SourceStatus[];
   statuses: Record<string, StatusEntry>;
   updatedAt: number;
+  serverAt?: number;
 };
 export type Resume = {
   id: string;
@@ -50,6 +51,15 @@ export type DiscoverFilters = {
   remoteTo: string;
   unknown: boolean;
   query: string;
+};
+export type JobsMeta = {
+  guest?: boolean;
+  keywords: string[];
+  sourceRank: Record<string, number>;
+  filters: Partial<DiscoverFilters>;
+  resumes: { id: string; name: string; alias?: string; keywords: string[] }[];
+  manual: string[];
+  excluded: string[];
 };
 export type Profile = {
   keywords: string[];
