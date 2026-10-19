@@ -80,6 +80,12 @@ export function mark(id: string, status: JobStatus): Promise<void> {
     body: JSON.stringify({ id, status }),
   })
     .then((r) => {
+      if (r.status === 401) {
+        // Session expired mid-use — hard-navigate to reset client state.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.assign("/login");
+        return;
+      }
       if (!r.ok) throw Error();
     })
     .catch(() => {
@@ -95,11 +101,11 @@ let profileMeta: ProfileMeta = { keywords: [], sourceRank: {} };
 let profileLoaded = false;
 let metaTouched = false;
 const profileSubs = new Set<(p: ProfileMeta) => void>();
-function useProfileMeta(): ProfileMeta {
+function useProfileMeta(enabled = true): ProfileMeta {
   const [p, setP] = useState(profileMeta);
   useEffect(() => {
     profileSubs.add(setP);
-    if (!profileLoaded) {
+    if (enabled && !profileLoaded) {
       profileLoaded = true;
       fetch("/api/profile")
         .then((r) => (r.ok ? r.json() : null))
@@ -115,7 +121,7 @@ function useProfileMeta(): ProfileMeta {
     return () => {
       profileSubs.delete(setP);
     };
-  }, []);
+  }, [enabled]);
   return p;
 }
 export function updateProfileMeta(p: ProfileMeta) {
@@ -123,7 +129,7 @@ export function updateProfileMeta(p: ProfileMeta) {
   metaTouched = true;
   profileSubs.forEach((f) => f(p));
 }
-export function useLiveProfileMeta(initial: ProfileMeta): ProfileMeta {
-  const p = useProfileMeta();
-  return metaTouched ? p : initial;
+export function useLiveProfileMeta(initial: ProfileMeta, enabled = true): ProfileMeta {
+  const p = useProfileMeta(enabled);
+  return enabled && metaTouched ? p : initial;
 }

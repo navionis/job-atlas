@@ -10,6 +10,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     {
+      url: `${origin}/jobs`,
+      lastModified: new Date(),
+      changeFrequency: "hourly",
+      priority: 0.9,
+    },
+    {
+      url: `${origin}/sources`,
+      lastModified: new Date(),
+      changeFrequency: "hourly",
+      priority: 0.7,
+    },
+    {
       url: `${origin}/login`,
       lastModified: new Date(),
       changeFrequency: "monthly",

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Sources",
   description: "Live status of every connected job feed — health, listing counts, and refresh schedule.",
-  robots: { index: false, follow: false },
+  robots: { index: true, follow: true },
 };
 export default async function SourcesPage() {
   const me = verifySessionValue((await cookies()).get("atlas_session")?.value);

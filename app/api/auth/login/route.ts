@@ -15,5 +15,7 @@ export async function GET(request: Request) {
   url.searchParams.set("redirect_uri", origin + "/api/auth/callback");
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", "openid email profile");
+  const next = new URL(request.url).searchParams.get("next");
+  if (next && next.startsWith("/") && !next.startsWith("//")) url.searchParams.set("state", next);
   return Response.redirect(url);
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { Suspense } from "react";
 import { Inter } from "next/font/google";
 import NextTopLoader from "nextjs-toploader";
 import { AppToaster } from "../components/toaster";
@@ -49,7 +50,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
       </head>
       <body>
-        <NextTopLoader color="#2563eb" height={2} showSpinner={false} shadow="none" />
+        <Suspense fallback={null}>
+          <NextTopLoader color="#2563eb" height={2} showSpinner={false} shadow="none" />
+        </Suspense>
         {children}
         <AppToaster />
       </body>

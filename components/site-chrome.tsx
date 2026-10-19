@@ -15,6 +15,11 @@ const LINKS: [string, string][] = [
   ["/sources", "Sources"],
   ["/profile", "Profile"],
 ];
+const GUEST_LINKS: [string, string][] = [
+  ["/", "Dashboard"],
+  ["/jobs", "Discover jobs"],
+  ["/sources", "Sources"],
+];
 
 const MNAV = [
   { href: "/", label: "Home", Icon: LayoutDashboard },
@@ -22,8 +27,14 @@ const MNAV = [
   { href: "/sources", label: "Sources", Icon: Rss },
   { href: "/profile", label: "Profile", Icon: UserRound },
 ];
+const GUEST_MNAV = [
+  { href: "/", label: "Home", Icon: LayoutDashboard },
+  { href: "/jobs", label: "Discover", Icon: Compass },
+  { href: "/sources", label: "Sources", Icon: Rss },
+  { href: "/login", label: "Sign in", Icon: UserRound },
+];
 
-export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean }) {
+export function SiteHeader({ me, admin = false }: { me: Session | null; admin?: boolean }) {
   const pathname = usePathname();
   const { connection } = useSnapshot();
   const [scrolled, setScrolled] = useState(false);
@@ -90,22 +101,24 @@ export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean
         </span>
       </Link>
       <nav>
-        {[...LINKS, ...(admin ? [["/admin", "Admin"] as [string, string]] : [])].map(([href, label]) => {
-          const active = pathname === href;
-          return (
-            <Link key={href} href={href} className={active ? "active" : ""}>
-              {label}
-              {active && (
-                <motion.span layoutId="nav-ink" className="nav-ink" transition={{ duration: 0.32, ease: EASE }} />
-              )}
-            </Link>
-          );
-        })}
+        {[...(me ? LINKS : GUEST_LINKS), ...(admin ? [["/admin", "Admin"] as [string, string]] : [])].map(
+          ([href, label]) => {
+            const active = pathname === href;
+            return (
+              <Link key={href} href={href} className={active ? "active" : ""}>
+                {label}
+                {active && (
+                  <motion.span layoutId="nav-ink" className="nav-ink" transition={{ duration: 0.32, ease: EASE }} />
+                )}
+              </Link>
+            );
+          },
+        )}
       </nav>
       <span className="live">
         <i />
         <span className="conn">{connection}</span>
-        {me.email ? (
+        {me?.email ? (
           <div className="profile" ref={menuRef}>
             <button className="avatar" onClick={() => setMenu((m) => !m)} aria-label="Account" aria-expanded={menu}>
               {me.picture ? (
@@ -127,21 +140,34 @@ export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean
                     Admin
                   </Link>
                 )}
-                <a href="/api/auth/logout">Sign out</a>
+                <button
+                  type="button"
+                  className="menu-signout"
+                  onClick={() =>
+                    void fetch("/api/auth/logout", { method: "POST" }).then(() => {
+                      // Full reload — drops module-level caches holding the
+                      // signed-in user's statuses/meta before guest view.
+                      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                      window.location.assign("/login");
+                    })
+                  }
+                >
+                  Sign out
+                </button>
               </div>
             )}
           </div>
         ) : (
-          <a className="signout" href="/api/auth/logout">
-            Sign out
-          </a>
+          <Link className="signin" href="/login">
+            Sign in
+          </Link>
         )}
         <button className="theme-toggle" onClick={toggleTheme} title="Toggle dark mode">
           {dark ? <Sun size={15} /> : <Moon size={15} />}
         </button>
       </span>
       <div className="mnav" role="navigation" aria-label="Primary">
-        {[...MNAV, ...(admin ? [{ href: "/admin", label: "Admin", Icon: ShieldCheck }] : [])].map(
+        {[...(me ? MNAV : GUEST_MNAV), ...(admin ? [{ href: "/admin", label: "Admin", Icon: ShieldCheck }] : [])].map(
           ({ href, label, Icon }) => {
             const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
             return (
@@ -157,7 +183,7 @@ export function SiteHeader({ me, admin = false }: { me: Session; admin?: boolean
   );
 }
 
-export function SiteFooter() {
+export function SiteFooter({ me }: { me: Session | null }) {
   return (
     <footer>
       <div className="foot-inner">
@@ -173,9 +199,9 @@ export function SiteFooter() {
         <div className="foot-links">
           <Link href="/">Dashboard</Link>
           <Link href="/jobs">Discover jobs</Link>
-          <Link href="/jobs">Matched for you</Link>
+          {me && <Link href="/jobs">Matched for you</Link>}
           <Link href="/sources">Sources</Link>
-          <Link href="/profile">Profile</Link>
+          {me ? <Link href="/profile">Profile</Link> : <Link href="/login">Sign in</Link>}
         </div>
         <div className="foot-note">
           <span>Source-linked · No fabricated listings</span>

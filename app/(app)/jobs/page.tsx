@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Discover jobs",
   description: "Browse and rank aggregated job listings by region, eligibility, source, schedule, and pipeline stage.",
-  robots: { index: false, follow: false },
+  robots: { index: true, follow: true },
 };
 export default async function JobsPage() {
   const store = await cookies();
@@ -21,6 +21,7 @@ export default async function JobsPage() {
   }));
   const p = me ? await getProfile(me.email).catch(() => null) : null;
   const meta = {
+    guest: !me,
     keywords: p ? effectiveKeywords(p) : [],
     sourceRank: p?.sourceRank || {},
     filters: p?.filters || {},

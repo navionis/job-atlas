@@ -8,7 +8,6 @@ import { catalog } from "../../lib/catalog";
 import { useLiveData } from "../../lib/live";
 import { Favicon } from "../../components/favicon";
 import type { JobStatus, Snapshot } from "../../lib/types";
-import { Spinner } from "../../components/loader";
 
 export default function DashboardClient({ initial }: { initial: Snapshot }) {
   const { data } = useLiveData(initial);
@@ -38,7 +37,6 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
           </h1>
           <p>Explore work by country, region, and the places employers actually include in their listings.</p>
           <div className="hero-cta">
-            <Spinner size={48}/>
             <Link className="primary" href="/jobs">
               Explore listings
             </Link>

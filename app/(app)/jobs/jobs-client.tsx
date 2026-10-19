@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
@@ -16,6 +16,7 @@ import { rankJobs, type JobMatch } from "../../../lib/match";
 import type { Snapshot, DiscoverFilters } from "../../../lib/types";
 
 type Meta = {
+  guest?: boolean;
   keywords: string[];
   sourceRank: Record<string, number>;
   filters: Partial<DiscoverFilters>;
@@ -43,9 +44,11 @@ const DAYS = [
 ];
 
 export default function JobsClient({ initial, meta }: { initial: Snapshot; meta: Meta }) {
+  const guest = !!meta.guest;
   const { data, loading, error } = useLiveData(initial);
-  const { sourceRank: srcRank } = useLiveProfileMeta(meta);
+  const { sourceRank: srcRank } = useLiveProfileMeta(meta, !guest);
   const sp = useSearchParams();
+  const router = useRouter();
   const f = meta.filters;
   const country = f.country || "",
     group = f.group || "",
@@ -55,12 +58,13 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     sched = f.sched || "",
     mode = f.mode || "location",
     unknown = !!f.unknown;
-  const defaultTab = "profile";
+  const defaultTab = guest ? "all" : "profile";
   const validMatch = (v: string | null): v is string =>
-    v === "all" ||
-    v === "profile" ||
-    (v === "manual" && meta.manual.length > 0) ||
-    meta.resumes.some((r) => r.id === v);
+    !guest &&
+    (v === "all" ||
+      v === "profile" ||
+      (v === "manual" && meta.manual.length > 0) ||
+      meta.resumes.some((r) => r.id === v));
   const validStatus = (v: string | null): v is JobStatus => STAGES.some(([s]) => s === v);
   const tab = validMatch(sp.get("match")) ? sp.get("match")! : defaultTab;
   const statusFilter: JobStatus = validStatus(sp.get("status")) ? (sp.get("status") as JobStatus) : "listed";
@@ -106,6 +110,10 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   }, []);
   const matched = tab !== "all" && tab !== "profile";
   const doMark = (id: string, st: "listed" | "applied" | "cancelled" | "ignored") => {
+    if (guest) {
+      router.push("/login");
+      return;
+    }
     setMarking((m) => [...m, id]);
     void mark(id, st).finally(() => setMarking((m) => m.filter((x) => x !== id)));
   };
@@ -276,58 +284,62 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           ))}
         </div>
         <div className="tabs-row">
-          <div className="m-tabs" role="tablist" aria-label="Match source">
-            <button
-              role="tab"
-              aria-selected={tab === "profile"}
-              className={"m-tab" + (tab === "profile" ? " on" : "")}
-              onClick={() => setTab("profile")}
-            >
-              <User size={13} /> Profile
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "all"}
-              className={"m-tab" + (tab === "all" ? " on" : "")}
-              onClick={() => setTab("all")}
-            >
-              All listings
-            </button>
-            {meta.resumes.map((r) => (
-              <button
-                key={r.id}
-                role="tab"
-                aria-selected={tab === r.id}
-                className={"m-tab" + (tab === r.id ? " on" : "")}
-                onClick={() => setTab(r.id)}
-              >
-                <FileText size={13} /> {r.alias || r.name}
-              </button>
-            ))}
-            {meta.manual.length > 0 && (
-              <button
-                role="tab"
-                aria-selected={tab === "manual"}
-                className={"m-tab" + (tab === "manual" ? " on" : "")}
-                onClick={() => setTab("manual")}
-              >
-                Manual keywords
-              </button>
-            )}
-          </div>
-          <div className="m-view">
-            <Select
-              value={tab}
-              onChange={setTab}
-              ariaLabel="Match view"
-              options={[
-                { value: "profile", label: "Profile" },
-                { value: "all", label: "All listings" },
-                ...meta.resumes.map((r) => ({ value: r.id, label: r.alias || r.name })),
-                ...(meta.manual.length > 0 ? [{ value: "manual", label: "Manual keywords" }] : []),
-              ]}
-            />
-          </div>
+          {!guest && (
+            <>
+              <div className="m-tabs" role="tablist" aria-label="Match source">
+                <button
+                  role="tab"
+                  aria-selected={tab === "profile"}
+                  className={"m-tab" + (tab === "profile" ? " on" : "")}
+                  onClick={() => setTab("profile")}
+                >
+                  <User size={13} /> Profile
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={tab === "all"}
+                  className={"m-tab" + (tab === "all" ? " on" : "")}
+                  onClick={() => setTab("all")}
+                >
+                  All listings
+                </button>
+                {meta.resumes.map((r) => (
+                  <button
+                    key={r.id}
+                    role="tab"
+                    aria-selected={tab === r.id}
+                    className={"m-tab" + (tab === r.id ? " on" : "")}
+                    onClick={() => setTab(r.id)}
+                  >
+                    <FileText size={13} /> {r.alias || r.name}
+                  </button>
+                ))}
+                {meta.manual.length > 0 && (
+                  <button
+                    role="tab"
+                    aria-selected={tab === "manual"}
+                    className={"m-tab" + (tab === "manual" ? " on" : "")}
+                    onClick={() => setTab("manual")}
+                  >
+                    Manual keywords
+                  </button>
+                )}
+              </div>
+              <div className="m-view">
+                <Select
+                  value={tab}
+                  onChange={setTab}
+                  ariaLabel="Match view"
+                  options={[
+                    { value: "profile", label: "Profile" },
+                    { value: "all", label: "All listings" },
+                    ...meta.resumes.map((r) => ({ value: r.id, label: r.alias || r.name })),
+                    ...(meta.manual.length > 0 ? [{ value: "manual", label: "Manual keywords" }] : []),
+                  ]}
+                />
+              </div>
+            </>
+          )}
           <Select compact value={days} onChange={setDays} options={DAYS} ariaLabel="Posted within" />
         </div>
         <div className="section-title">

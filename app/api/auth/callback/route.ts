@@ -1,6 +1,10 @@
-import { createHmac } from "node:crypto";
 import { ensureAdmin } from "../../../../lib/feeds";
+import { sessionCookieHeader } from "../../../../lib/auth";
 import { originOf } from "../login/route";
+
+function safeNext(v: string | null): string {
+  return v && v.startsWith("/") && !v.startsWith("//") ? v : "/";
+}
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
@@ -37,15 +41,16 @@ export async function GET(request: Request) {
     const email = String(payload.email || "").toLowerCase();
     if (!payload.email_verified || !email) return Response.redirect(origin + "/login?error=denied");
     await ensureAdmin(email);
-    const exp = Date.now() + 7 * 24 * 3600 * 1000;
-    const profile = { e: email, n: String(payload.name || ""), p: String(payload.picture || "") };
-    const data = `${Buffer.from(JSON.stringify(profile), "utf8").toString("base64url")}.${exp}`;
-    const sig = createHmac("sha256", secret).update(data).digest("base64url");
+    const cookie = sessionCookieHeader(
+      { email, name: String(payload.name || ""), picture: String(payload.picture || "") },
+      origin.startsWith("https:"),
+    );
+    if (!cookie) return Response.redirect(origin + "/login?error=config");
     return new Response(null, {
       status: 302,
       headers: {
-        Location: origin + "/",
-        "Set-Cookie": `atlas_session=${data}.${sig}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 3600}${origin.startsWith("https:") ? "; Secure" : ""}`,
+        Location: origin + safeNext(url.searchParams.get("state")),
+        "Set-Cookie": cookie,
       },
     });
   } catch (e) {

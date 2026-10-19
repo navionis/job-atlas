@@ -30,6 +30,9 @@ type Feed = {
   pages?: number;
   pageUrl?: (page: number) => { url: string; init?: RequestInit };
   map: (data: any) => Job[];
+  // Secondary source used when the primary request fails (e.g. CDN bot
+  // checks blocking hnhiring.com — the HN API carries the same thread).
+  fallback?: () => Promise<Job[]>;
 };
 const H = 3600000;
 // Some providers (hnhiring, boards behind bot filters) intermittently 403 the
@@ -216,6 +219,76 @@ const HN_TITLEISH =
   /\b(engineer|developer|devops|manager|designer|architect|scientist|analyst|consultant|programmer|specialist|director|founder|intern|cto|lead|head of|marketing|writer|recruiter|qa|sdet|sre|platform|product|data|security|support|sales|growth|operations)\b/i;
 const HN_PLACEISH = /\b(remote|on-?site|hybrid|location|time\s?zones?|worldwide)\b/i;
 const HN_URLISH = /^(https?:|\S+\.(com|io|dev|ai|co|fm|xyz|net|org|us|app|gg|so)\b)/i;
+// Comment heads are freeform — "|", "—", or "–" separated depending on month.
+const HN_SEP = /\s*[|—–]\s*/;
+// Algolia escapes HTML entities inside attribute values too, so decode before
+// any href/body parsing (&#x2F; is "/", &quot; is a quote, etc.).
+const decodeEntities = (s: string) =>
+  s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&(quot|amp|lt|gt);/g, (m) => ({ "&quot;": '"', "&amp;": "&", "&lt;": "<", "&gt;": ">" })[m] || m);
+// Shared parser for one "Who is hiring" comment body (HTML), whether it came
+// from hnhiring.com markup or the Algolia HN API.
+function hnCommentJob(body: string, id: string, posted: string | undefined): Job | null {
+  const head = plain(body.split(/<p[ >]|<br/i)[0]);
+  const segs = head
+    .split(HN_SEP)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (segs.length < 2) return null; // not a "Company | Role | …" post
+  const first = segs[0];
+  const firstLoc = [...first.matchAll(/\(([^)]*)\)/g)]
+    .map((m) => m[1].trim())
+    .find((inner) => HN_PLACEISH.test(inner) && !/https?:/i.test(inner));
+  const company = first
+    .replace(/\(\s*https?:[^)]*\)/g, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\(([^)]*)\)/g, (m, inner) => (HN_PLACEISH.test(inner) || /https?:/i.test(inner) ? " " : m))
+    .replace(/^(company)\s*:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const rest = (/^location\s*:/i.test(first) ? segs : segs.slice(1))
+    .map((s) =>
+      s
+        .replace(/\(\s*https?:\/\/[^)]*\)/g, " ")
+        .replace(/https?:\/\/\S+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^\(([^()]*)\)$/, "$1"),
+    )
+    .filter(Boolean);
+  const locSeg = rest.find((s) => HN_PLACEISH.test(s)) || firstLoc || "";
+  const title = (
+    rest.find((s) => HN_TITLEISH.test(s)) ||
+    rest.find((s) => s !== locSeg && !HN_URLISH.test(s)) ||
+    ""
+  ).slice(0, 140);
+  const tags = rest.filter((s) => s !== title && s !== locSeg && !HN_URLISH.test(s)).slice(0, 6);
+  const links = [...body.matchAll(/href="(https?:\/\/(?!news\.ycombinator\.com)[^"]+)"/g)].map((x) => x[1]);
+  // First link is usually the company domain in the header line; prefer a
+  // link with a real path (the "Apply:" / "Details:" URL) when present.
+  const url =
+    links.find((l) => {
+      try {
+        return new URL(l).pathname.length > 1;
+      } catch {
+        return false;
+      }
+    }) || links[0];
+  return job("hnhiring", {
+    id,
+    title: title || company,
+    company,
+    url: url || "https://hnhiring.com/locations/remote#" + id,
+    location: locSeg,
+    eligibility: locSeg,
+    remote: /remote/i.test(locSeg || head),
+    posted,
+    tags,
+    summary: plain(body),
+  });
+}
 function hnhiringJobs(html: string): Job[] {
   const out: Job[] = [];
   for (const m of html.matchAll(
@@ -224,61 +297,40 @@ function hnhiringJobs(html: string): Job[] {
     const li = m[0],
       body = m[1];
     const head = plain(body.split(/<p[ >]|<br/i)[0]);
-    const segs = head
-      .split("|")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const company = (segs[0] || "")
-      .replace(/\(\s*https?:[^)]*\)/g, "")
-      .replace(/^(company)\s*:\s*/i, "")
-      .trim();
-    const rest = (/^location\s*:/i.test(segs[0] || "") ? segs : segs.slice(1))
-      .map((s) =>
-        s
-          .replace(/\(\s*https?:\/\/[^)]*\)/g, " ")
-          .replace(/https?:\/\/\S+/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-          .replace(/^\(([^()]*)\)$/, "$1"),
-      )
-      .filter(Boolean);
-    const locSeg = rest.find((s) => HN_PLACEISH.test(s)) || "";
-    const title = (
-      rest.find((s) => HN_TITLEISH.test(s)) ||
-      rest.find((s) => s !== locSeg && !HN_URLISH.test(s)) ||
-      ""
-    ).slice(0, 140);
-    const tags = rest.filter((s) => s !== title && s !== locSeg && !HN_URLISH.test(s)).slice(0, 6);
     const id = createHash("sha1")
       .update(head + "|" + body)
       .digest("hex")
       .slice(0, 12);
-    const links = [...body.matchAll(/href="(https?:\/\/(?!news\.ycombinator\.com)[^"]+)"/g)].map((x) => x[1]);
-    // First link is usually the company domain in the header line; prefer a
-    // link with a real path (the "Apply:" / "Details:" URL) when present.
-    const url =
-      links.find((l) => {
-        try {
-          return new URL(l).pathname.length > 1;
-        } catch {
-          return false;
-        }
-      }) || links[0];
-    out.push(
-      job("hnhiring", {
-        id,
-        title: title || company,
-        company,
-        url: url || "https://hnhiring.com/locations/remote#" + id,
-        location: locSeg,
-        eligibility: locSeg,
-        remote: /remote/i.test(locSeg || head),
-        posted: (li.match(/class="[^"]*type-info[^"]*"[^>]*>([^<]+)</) || [])[1],
-        tags,
-        summary: plain(body),
-      }),
-    );
+    const j = hnCommentJob(body, id, (li.match(/class="[^"]*type-info[^"]*"[^>]*>([^<]+)</) || [])[1]);
+    if (j) out.push(j);
   }
+  return out;
+}
+// Permanent fallback: hnhiring.com just renders the monthly HN "Who is hiring"
+// thread. When the site itself blocks us (Cloudflare 403s), fetch the same
+// comments straight from the Algolia HN API — no bot protection there.
+async function hnAlgoliaJobs(): Promise<Job[]> {
+  const opts = { signal: AbortSignal.timeout(18000), cache: "no-store" as const };
+  const s = await fetch(
+    "https://hn.algolia.com/api/v1/search_by_date?tags=story&query=" +
+      encodeURIComponent('Ask HN: Who is hiring?') +
+      "&hitsPerPage=15",
+    opts,
+  );
+  if (!s.ok) throw Error(`Algolia search HTTP ${s.status}`);
+  const search = await s.json();
+  const thread = (search.hits || []).find((h: any) => /^Ask HN:\s*Who is hiring\?/i.test(h.title || ""));
+  if (!thread) throw Error("HN hiring thread not found");
+  const r = await fetch(`https://hn.algolia.com/api/v1/items/${thread.objectID}`, opts);
+  if (!r.ok) throw Error(`Algolia items HTTP ${r.status}`);
+  const item = await r.json();
+  const out: Job[] = [];
+  for (const c of item.children || []) {
+    if (!c.text || c.deleted || c.dead) continue;
+    const j = hnCommentJob(decodeEntities(c.text), "hn" + c.id, c.created_at);
+    if (j) out.push(j);
+  }
+  if (!out.length) throw Error("HN thread parsed to zero jobs");
   return out;
 }
 export function feeds(): Feed[] {
@@ -438,6 +490,7 @@ export function feeds(): Feed[] {
       ttl: 6 * H,
       html: true,
       map: hnhiringJobs,
+      fallback: hnAlgoliaJobs,
     },
   ];
   if (process.env.MUSE_API_KEY)
@@ -744,6 +797,7 @@ export async function setJobStatus(email: string, id: string, status: JobStatus)
 export async function isAdminUser(email: string): Promise<boolean> {
   await shared.hydrated;
   const em = email.toLowerCase();
+  if (!em) return false;
   const env = (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((x) => x.trim().toLowerCase())
@@ -898,29 +952,40 @@ async function refresh(f: Feed, force = false) {
         cache: "no-store",
         redirect: "error",
       });
-    for (const r of requests) {
-      let response = await request(r);
-      // CDN bot checks (e.g. Cloudflare on hnhiring) flap 403s; one delayed
-      // retry usually clears them — otherwise the feed is parked for its TTL.
-      if (response.status === 403) {
-        await new Promise((res) => setTimeout(res, 2500));
-        response = await request(r);
+    let detail =
+      f.provider === "remotive"
+        ? "Provider listings delayed by 24 hours"
+        : "Latest configured feed slice; see coverage";
+    try {
+      for (const r of requests) {
+        let response = await request(r);
+        // CDN bot checks (e.g. Cloudflare on hnhiring) flap 403s; one delayed
+        // retry usually clears them — otherwise the feed is parked for its TTL.
+        if (response.status === 403) {
+          await new Promise((res) => setTimeout(res, 2500));
+          response = await request(r);
+        }
+        if (!response.ok) {
+          if (response.status === 429 || response.status === 503)
+            e.next = Math.max(e.next, Date.now() + retryDelay(response.headers.get("retry-after")));
+          throw Error(`Provider returned HTTP ${response.status}`);
+        }
+        jobs.push(...f.map(f.html ? await response.text() : await response.json()));
       }
-      if (!response.ok) {
-        if (response.status === 429 || response.status === 503)
-          e.next = Math.max(e.next, Date.now() + retryDelay(response.headers.get("retry-after")));
-        throw Error(`Provider returned HTTP ${response.status}`);
-      }
-      jobs.push(...f.map(f.html ? await response.text() : await response.json()));
+    } catch (err) {
+      if (!f.fallback) throw err;
+      // Primary source failed (bot check, outage) — pull the same data from
+      // the fallback source rather than parking the feed. Clear partial
+      // pages so fallback output isn't mixed with half-fetched primary data.
+      jobs.length = 0;
+      jobs.push(...(await f.fallback()));
+      detail = "Primary unreachable — served via HN thread mirror";
     }
     const found = jobs.filter((j) => j.title && j.url);
     e.jobs = found;
     e.fetched = Date.now();
     e.status = "connected";
-    e.detail =
-      f.provider === "remotive"
-        ? "Provider listings delayed by 24 hours"
-        : "Latest configured feed slice; see coverage";
+    e.detail = detail;
     if (shared.pg) {
       // Skip the multi-hundred-row upsert when the feed content is identical
       // to the last successful write.

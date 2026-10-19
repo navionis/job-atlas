@@ -1,5 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 export type Session = { email: string; name: string; picture: string };
+const SESSION_AGE = 7 * 24 * 3600 * 1000;
+export function sessionCookieHeader(s: Session, secure: boolean): string | null {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return null;
+  const exp = Date.now() + SESSION_AGE;
+  const data = `${Buffer.from(JSON.stringify({ e: s.email, n: s.name, p: s.picture }), "utf8").toString("base64url")}.${exp}`;
+  const sig = createHmac("sha256", secret).update(data).digest("base64url");
+  return `atlas_session=${data}.${sig}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_AGE / 1000}${secure ? "; Secure" : ""}`;
+}
 export function getSession(request: Request): Session | null {
   const raw = (request.headers.get("cookie") || "")
     .split(";")
