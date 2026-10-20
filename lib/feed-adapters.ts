@@ -60,28 +60,32 @@ const list = (s: string | undefined) =>
     .map((x) => x.trim())
     .filter((x) => /^[a-zA-Z0-9_-]+$/.test(x))
     .slice(0, 20);
-const getro = (page: number) => ({
-  url: "https://api.getro.com/api/v2/collections/20916/search/jobs",
+// Getro powers both getro.com's collections and network boards like
+// jobs.solana.com — same response shape, different collection id.
+const getro = (collection: number) => (page: number) => ({
+  url: `https://api.getro.com/api/v2/collections/${collection}/search/jobs`,
   init: {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({ hits_per_page: 100, page, filters: {} }),
   },
 });
-function getroJobs(d: any): Job[] {
-  return (d.results?.jobs || []).map((j: Row) =>
-    job("getro", {
-      id: j.id,
-      title: j.title,
-      company: j.organization?.name,
-      url: j.url,
-      location: (j.searchable_locations || []).slice(0, 2).join("; "),
-      remote: j.work_mode === "remote",
-      posted: (j.created_at || 0) * 1000,
-      tags: j.skills,
-    }),
-  );
-}
+const getroJobs =
+  (source: string) =>
+  (d: any): Job[] => {
+    return (d.results?.jobs || []).map((j: Row) =>
+      job(source, {
+        id: j.id,
+        title: j.title,
+        company: j.organization?.name,
+        url: j.url,
+        location: (j.searchable_locations || []).slice(0, 2).join("; "),
+        remote: j.work_mode === "remote",
+        posted: (j.created_at || 0) * 1000,
+        tags: j.skills,
+      }),
+    );
+  };
 function web3careerJobs(html: string): Job[] {
   const postings: Row[] = [];
   for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
@@ -192,6 +196,208 @@ function sailonchainJobs(html: string): Job[] {
             plain(t[1]).replace(/^#\s*/, ""),
           ),
         ].filter(Boolean),
+      }),
+    );
+  }
+  return out;
+}
+// Feeds double-escape text nodes ("&amp;amp;") — decode twice so "&" survives.
+const unescapeXml = (s: string) => {
+  for (let i = 0; i < 2; i++)
+    s = s
+      .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(
+        /&(quot|amp|lt|gt|apos);/g,
+        (m) => ({ "&quot;": '"', "&amp;": "&", "&lt;": "<", "&gt;": ">", "&apos;": "'" })[m] || m,
+      );
+  return s;
+};
+// Minimal RSS item reader — description/creator/location cover every feed we map.
+function rssItems(xml: string): Row[] {
+  const items: Row[] = [];
+  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const pick = (tag: string) =>
+      unescapeXml(
+        ((m[1].match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`)) || [])[1] || "").replace(
+          /<!\[CDATA\[|\]\]>/g,
+          "",
+        ),
+      );
+    items.push({
+      title: pick("title"),
+      link: pick("link"),
+      guid: pick("guid"),
+      pubDate: pick("pubDate"),
+      description: pick("description"),
+      category: pick("category"),
+      creator: pick("dc:creator"),
+      location: pick("media:location"),
+    });
+  }
+  return items;
+}
+function cryptojobslistJobs(html: string): Job[] {
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return [];
+  const jobs = JSON.parse(m[1]).props?.pageProps?.jobs || [];
+  return jobs
+    .filter((r: Row) => r.published !== false && !r.filled)
+    .map((r: Row) =>
+      job("cryptojobslist", {
+        id: r.id || r._id?.$oid || r.seoSlug,
+        title: r.jobTitle,
+        company: r.companyName,
+        url: "https://cryptojobslist.com/jobs/" + r.seoSlug,
+        location: r.jobLocation,
+        remote: r.remote,
+        posted: r.publishedAt,
+        tags: [...(r.tags || []), r.salaryString].filter(Boolean),
+      }),
+    );
+}
+// RSS titles are "Job Application for {role} at {company} at {company}" — the
+// description "at {company} - {type} - {location}" carries the clean fields.
+function remote3Jobs(xml: string): Job[] {
+  return rssItems(xml).map((r) => {
+    const [, company = "", type = "", location = ""] = plain(r.description).match(/^at (.*?) - (.*?) - (.*)$/) || [];
+    const title = plain(r.title)
+      .replace(/^Job Application for /, "")
+      .replace(new RegExp(" at " + company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$"), "");
+    return job("remote3", {
+      id: (plain(r.guid) || plain(r.link)).split("/").pop(),
+      title,
+      company,
+      url: plain(r.link).split("?")[0],
+      location,
+      remote: /remote|worldwide/i.test(location),
+      posted: r.pubDate,
+      tags: [type].filter(Boolean),
+    });
+  });
+}
+// crypto.jobs RSS packs Company/Location/Salary/Type/Skills as <strong> rows
+// inside the description CDATA; remaining paragraphs are the summary.
+function cryptojobsFeedJobs(xml: string): Job[] {
+  return rssItems(xml).map((r) => {
+    const d = r.description || "";
+    const field = (k: string) => plain((d.match(new RegExp(`<strong>${k}:</strong>\\s*([\\s\\S]*?)</p>`)) || [])[1]);
+    const title = plain(r.title);
+    const company = field("Company") || plain((title.match(/ at (.*)$/) || [])[1]);
+    return job("cryptojobs", {
+      id: (plain(r.guid) || plain(r.link)).split("/").pop(),
+      title: company && title.endsWith(" at " + company) ? title.slice(0, -(company.length + 4)) : title,
+      company,
+      url: plain(r.link).split("?")[0],
+      location: field("Location"),
+      remote: /remote/i.test(field("Location")),
+      posted: r.pubDate,
+      tags: [plain(r.category), field("Type"), field("Salary"), ...field("Skills").split(/,\s*/)]
+        .filter(Boolean)
+        .slice(0, 8),
+      summary: d.replace(/<p>\s*<strong>(Company|Location|Salary|Type|Skills):<\/strong>[\s\S]*?<\/p>/g, ""),
+    });
+  });
+}
+// Card ages render relatively ("1h", "3d") — convert to a timestamp at parse.
+const AGE_UNITS: Record<string, number> = {
+  m: 60000,
+  h: H,
+  d: 24 * H,
+  w: 7 * 24 * H,
+  mo: 30 * 24 * H,
+  y: 365 * 24 * H,
+};
+function jobsweb3Jobs(html: string): Job[] {
+  const out: Job[] = [];
+  for (const m of html.matchAll(/<li class="job" data-key="([^"]+)"[\s\S]*?<\/li>/g)) {
+    const card = m[0];
+    const a = card.match(/job__link" href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!a) continue;
+    const loc = plain((card.match(/job__loc">([\s\S]*?)<\/span>/) || [])[1]);
+    const age = plain((card.match(/job__age">([\s\S]*?)<\/span>\s*<\/span>/) || [])[1]);
+    const t = age.match(/(\d+)\s*([a-z]+)/i);
+    out.push(
+      job("jobsweb3", {
+        id: m[1],
+        title: a[2],
+        company: (card.match(/job__name">([^<]*)</) || [])[1],
+        url: "https://jobsweb3.io" + a[1],
+        location: loc,
+        eligibility: loc,
+        remote: /remote/i.test(loc),
+        posted: t ? new Date(Date.now() - Number(t[1]) * (AGE_UNITS[t[2].toLowerCase()] || H)).toISOString() : "",
+        tags: [plain((card.match(/job__pay">([\s\S]*?)<\/span>/) || [])[1])].filter(Boolean),
+      }),
+    );
+  }
+  return out;
+}
+// Curated <table>s — two layouts share the page: company|title|type|location
+// and an external-offers one prefixed by a source-name link cell. The last
+// non-social external href in a row is the apply URL. Dates are French and
+// sometimes yearless.
+const FR_MONTHS: Record<string, string> = {
+  janv: "Jan",
+  févr: "Feb",
+  mars: "Mar",
+  avr: "Apr",
+  mai: "May",
+  juin: "Jun",
+  juil: "Jul",
+  août: "Aug",
+  sept: "Sep",
+  oct: "Oct",
+  nov: "Nov",
+  déc: "Dec",
+  dec: "Dec",
+};
+const frMonth = (w: string) =>
+  Object.entries(FR_MONTHS).find(([k]) => w.startsWith(k))?.[1] || w[0].toUpperCase() + w.slice(1, 3);
+function coinacademyJobs(html: string): Job[] {
+  const out: Job[] = [];
+  for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((c) => c[1]);
+    if (cells.length < 6) continue;
+    const url = [...row[1].matchAll(/href="(https?:\/\/[^"]+)"/g)]
+      .map((l) => l[1])
+      .filter((l) => !/twitter\.com|x\.com|coinacademy\.fr/.test(l))
+      .pop();
+    // Curated links occasionally rot into non-URLs ("utm_source=…").
+    try {
+      if (!url || !new URL(url).hostname.includes(".")) continue;
+    } catch {
+      continue;
+    }
+    const src = /<a /.test(cells[1]);
+    const [ci, ti, tyi, li] = src ? [2, 3, 4, 5] : [1, 2, 3, 4];
+    const loc = plain(cells[li]);
+    const dm = plain(cells[0])
+      .toLowerCase()
+      .replace(/\./g, "")
+      .match(/(\d{1,2})\s+([a-zàâäéèêëîïôöùûü]+)\s*(\d{4})?/);
+    let posted = "";
+    if (dm) {
+      const d = new Date(`${dm[1]} ${frMonth(dm[2])} ${dm[3] || new Date().getFullYear()}`);
+      if (!isNaN(d.getTime())) {
+        if (!dm[3] && d.getTime() > Date.now() + 7 * 86400000) d.setFullYear(d.getFullYear() - 1);
+        posted = d.toISOString();
+      }
+    }
+    out.push(
+      job("coinacademy", {
+        id: createHash("sha1")
+          .update(plain(cells[ci]) + "|" + plain(cells[ti]) + "|" + url)
+          .digest("hex")
+          .slice(0, 12),
+        title: cells[ti],
+        company: cells[ci],
+        url,
+        location: loc.replace(/\s*\((Distant|Remote|Hybride)\)\s*/i, ""),
+        eligibility: loc,
+        remote: /distant|remote/i.test(loc),
+        posted,
+        tags: [plain(cells[tyi]), src ? plain(cells[1]) : cells[6] && plain(cells[6])].filter(Boolean),
       }),
     );
   }
@@ -440,7 +646,24 @@ export function feeds(): Feed[] {
       html: true,
       map: web3careerJobs,
     },
-    { id: "getro", provider: "getro", ...getro(1), ttl: 6 * H, pages: 3, pageUrl: getro, map: getroJobs },
+    {
+      id: "getro",
+      provider: "getro",
+      ...getro(20916)(1),
+      ttl: 6 * H,
+      pages: 3,
+      pageUrl: getro(20916),
+      map: getroJobs("getro"),
+    },
+    {
+      id: "solana",
+      provider: "solana",
+      ...getro(858)(1),
+      ttl: 6 * H,
+      pages: 3,
+      pageUrl: getro(858),
+      map: getroJobs("solana"),
+    },
     {
       id: "raretalent",
       provider: "raretalent",
@@ -464,6 +687,46 @@ export function feeds(): Feed[] {
       ttl: 6 * H,
       html: true,
       map: sailonchainJobs,
+    },
+    {
+      id: "cryptojobslist",
+      provider: "cryptojobslist",
+      url: "https://cryptojobslist.com/",
+      ttl: 6 * H,
+      html: true,
+      map: cryptojobslistJobs,
+    },
+    {
+      id: "remote3",
+      provider: "remote3",
+      url: "https://www.remote3.co/api/rss",
+      ttl: 6 * H,
+      html: true,
+      map: remote3Jobs,
+    },
+    {
+      id: "cryptojobs",
+      provider: "cryptojobs",
+      url: "https://crypto.jobs/feed/rss",
+      ttl: 6 * H,
+      html: true,
+      map: cryptojobsFeedJobs,
+    },
+    {
+      id: "jobsweb3",
+      provider: "jobsweb3",
+      url: "https://jobsweb3.io/",
+      ttl: 6 * H,
+      html: true,
+      map: jobsweb3Jobs,
+    },
+    {
+      id: "coinacademy",
+      provider: "coinacademy",
+      url: "https://coinacademy.fr/offres-emploi-crypto/",
+      ttl: 6 * H,
+      html: true,
+      map: coinacademyJobs,
     },
     {
       id: "hnhiring",
