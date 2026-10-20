@@ -1,6 +1,7 @@
 "use client";
 import { useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUpRight, MapPin, Globe2, ShieldAlert, CircleCheck } from "lucide-react";
 import { FadeIn } from "../../../../components/motion";
 import { Spinner } from "../../../../components/loader";
@@ -48,6 +49,7 @@ function ScopeBlock({ scope, empty }: { scope: Scope; empty: string }) {
 
 export default function JobClient({ id, initial, meta }: { id: string; initial: Snapshot; meta: JobsMeta }) {
   const { data, loading } = useLiveData(initial);
+  const router = useRouter();
   const now = useServerClock(data.serverAt, initial.serverAt || 0);
   const liveMeta = useLiveProfileMeta({ keywords: meta.keywords, sourceRank: {} }, !meta.guest);
   const j = data.jobs.find((x) => x.id === id);
@@ -68,7 +70,20 @@ export default function JobClient({ id, initial, meta }: { id: string; initial: 
     );
   return (
     <FadeIn className="pf-wrap">
-      <Link href="/jobs" className="jd-back">
+      <Link
+        href="/jobs"
+        className="jd-back"
+        onClick={(e) => {
+          // The Navigation API exposes the same-origin entry stack — if the
+          // entry before this one is ours, back() restores filters AND the
+          // scrolled position; on a direct landing, push to a fresh list.
+          e.preventDefault();
+          const entries = (window as any).navigation?.entries?.() as { url: string }[] | undefined;
+          const prevUrl = entries?.[entries.length - 2]?.url;
+          if (prevUrl && new URL(prevUrl).origin === location.origin) router.back();
+          else router.push("/jobs");
+        }}
+      >
         <ArrowLeft size={13} /> Back to Discover
       </Link>
       <div className="pf-card jd-card">

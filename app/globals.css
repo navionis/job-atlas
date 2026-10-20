@@ -1749,6 +1749,89 @@ footer {
   display: block;
   margin: 10px auto 4px;
 }
+/* Shimmer skeleton used by route loading states (e.g. job detail). */
+.skel {
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ink) 8%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: skel-shine 1.5s ease-in-out infinite;
+}
+@keyframes skel-shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+.skel-back {
+  width: 112px;
+  height: 16px;
+  margin-bottom: 14px;
+}
+.skel-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+.skel-title {
+  width: 68%;
+  max-width: 560px;
+  height: 26px;
+}
+.skel-line {
+  height: 12px;
+  margin: 3px 0;
+}
+.skel-pill {
+  height: 18px;
+  border-radius: 4px;
+}
+.skel-btn {
+  height: 24px;
+  border-radius: 4px;
+}
+.skel-h {
+  width: 150px;
+  height: 15px;
+  margin-bottom: 12px;
+}
+.skel-search {
+  height: 48px;
+  border-radius: 8px;
+}
+.skel-pipe {
+  height: 33px;
+  border-radius: 8px;
+}
+.skel-mtab {
+  height: 33px;
+  border-radius: 999px;
+}
+.skel-cardtitle {
+  height: 20px;
+  margin: 2px 0 9px;
+}
+article.skel-card {
+  cursor: default;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel::after {
+    animation: none;
+  }
+}
 .route-load {
   flex: 1;
   display: flex;

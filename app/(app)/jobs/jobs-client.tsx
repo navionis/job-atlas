@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { Search, MapPin, ArrowUpRight, CalendarDays, Compass, FileText, User, X } from "lucide-react";
 import { Spinner } from "../../../components/loader";
 import { Select } from "../../../components/select";
@@ -86,6 +86,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const setQuery = (v: string) => setParams({ q: v });
   const setDays = (v: string) => setParams({ days: v || null }, true);
   const [shown, setShown] = useState(PAGE);
+  const pendingScroll = useRef<{ y: number; shown: number } | null>(null);
   const moreObs = useRef<IntersectionObserver | null>(null);
   // Callback ref, not a useEffect — the sentinel mounts late whenever `total`
   // grows (SSE/poll) while `shown`/`matched` stay put, and deps-based effects
@@ -216,10 +217,8 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
         : preStatus.filter((j) => (statuses[j.id]?.status || "listed") === statusFilter);
     // The date window targets the active tab's own timestamp: Applied means
     // *applied* in the window, Listed means *posted* in it, All means either.
-    if (cutoff && statusFilter === "listed")
-      list = list.filter((j) => Date.parse(j.posted) >= cutoff);
-    else if (cutoff && statusFilter !== "all")
-      list = list.filter((j) => (statuses[j.id]?.at || 0) >= cutoff);
+    if (cutoff && statusFilter === "listed") list = list.filter((j) => Date.parse(j.posted) >= cutoff);
+    else if (cutoff && statusFilter !== "all") list = list.filter((j) => (statuses[j.id]?.at || 0) >= cutoff);
     if (statusFilter === "applied" || statusFilter === "cancelled" || statusFilter === "ignored")
       return [...list].sort((a, b) => (statuses[b.id]?.at || 0) - (statuses[a.id]?.at || 0));
     return list;
@@ -230,6 +229,42 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     return rankJobs(filtered, r ? r.keywords : meta.manual, meta.excluded, srcRank);
   }, [matched, tab, filtered, meta.resumes, meta.manual, meta.excluded, srcRank]);
   const total = matched ? ranked.length : filtered.length;
+  // Snapshot scroll + loaded count when leaving for a detail page; on return
+  // both are restored so the browser can land at the exact spot.
+  const openJob = (href: string) => {
+    try {
+      sessionStorage.setItem(
+        `ja:scroll:${location.pathname}${location.search}`,
+        JSON.stringify({ y: window.scrollY, shown }),
+      );
+    } catch {}
+    router.push(href);
+  };
+  const didRestore = useRef(false);
+  useEffect(() => {
+    if (didRestore.current) return;
+    didRestore.current = true;
+    try {
+      const key = `ja:scroll:${location.pathname}${location.search}`;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      sessionStorage.removeItem(key);
+      const saved = JSON.parse(raw);
+      if (typeof saved?.y !== "number" || saved.y <= 0) return;
+      pendingScroll.current = { y: saved.y, shown: Math.min(saved.shown || PAGE, 500) };
+      // Grow the list back to its previous depth inside a frame callback —
+      // direct setState in an effect body is a cascading-render violation.
+      requestAnimationFrame(() => setShown((n) => Math.max(n, pendingScroll.current?.shown ?? n)));
+    } catch {}
+  }, []);
+  // Scroll only once the DOM is tall enough — either the saved depth is
+  // rendered or the (shrunken) list has been fully rendered.
+  useEffect(() => {
+    const p = pendingScroll.current;
+    if (p == null || (shown < p.shown && shown < total)) return;
+    pendingScroll.current = null;
+    window.scrollTo(0, p.y);
+  }, [shown, total]);
   const display: { j: (typeof filtered)[number]; m?: JobMatch }[] = matched
     ? ranked.slice(0, shown).map((m) => ({ j: m.job, m }))
     : filtered.slice(0, shown).map((j) => ({ j }));
@@ -444,75 +479,71 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           </div>
         ) : (
           <div className="cards">
-            <AnimatePresence mode="popLayout">
-              {display.map(({ j, m }, i) => {
-                const se = statuses[j.id],
-                  st = se?.status || "listed",
-                  stAt = se?.at || 0;
-                const href = `/jobs/${encodeURIComponent(j.id)}`;
-                return (
-                  <motion.article
-                    key={j.id}
-                    layout
-                    className={"card-" + st}
-                    role="link"
-                    tabIndex={0}
-                    aria-label={`${j.title} at ${j.company}`}
-                    onClick={() => router.push(href)}
-                    onMouseMove={(e) => {
-                      const r = e.currentTarget.getBoundingClientRect();
-                      e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
-                      e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
-                    }}
-                    onAuxClick={(e) => {
-                      if (e.button === 1) window.open(href, "_blank", "noopener");
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") router.push(href);
-                    }}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.4), ease: EASE }}
-                  >
-                    <JobHead j={j} m={m} st={st} stAt={stAt} now={now} />
-                    <div className="job-content">
-                      <h3>
-                        <a
-                          href={j.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          onAuxClick={(e) => e.stopPropagation()}
-                        >
-                          {j.title} <ArrowUpRight size={13} />
-                        </a>
-                      </h3>
-                      <p className="location">
-                        <MapPin size={12} /> {j.location}
-                      </p>
-                      <div className="tags">
-                        <RemotePill j={j} />
-                        {(srcRank[j.source] ?? 3) >= 4 && <span className="pill">Priority feed</span>}
-                        <HitPills hits={m?.hits} max={6} />
-                        {j.scope.groups.map((g) => (
-                          <span className="pill" key={g}>
-                            {g} · group match
-                          </span>
-                        ))}
-                        {(mode === "eligibility" ? j.eligibility : j.scope).unknown && (
-                          <span className="pill amber">Scope unknown</span>
-                        )}
-                        {(mode === "eligibility" ? j.eligibility : j.scope).uncertain && (
-                          <span className="pill amber">Restrictions need review</span>
-                        )}
-                      </div>
-                      <JobActions id={j.id} st={st} guest={guest} />
+            {display.map(({ j, m }, i) => {
+              const se = statuses[j.id],
+                st = se?.status || "listed",
+                stAt = se?.at || 0;
+              const href = `/jobs/${encodeURIComponent(j.id)}`;
+              return (
+                <motion.article
+                  key={j.id}
+                  className={"card-" + st}
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`${j.title} at ${j.company}`}
+                  onClick={() => openJob(href)}
+                  onMouseMove={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
+                    e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
+                  }}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) window.open(href, "_blank", "noopener");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") openJob(href);
+                  }}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.4), ease: EASE }}
+                >
+                  <JobHead j={j} m={m} st={st} stAt={stAt} now={now} />
+                  <div className="job-content">
+                    <h3>
+                      <a
+                        href={j.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        onAuxClick={(e) => e.stopPropagation()}
+                      >
+                        {j.title} <ArrowUpRight size={13} />
+                      </a>
+                    </h3>
+                    <p className="location">
+                      <MapPin size={12} /> {j.location}
+                    </p>
+                    <div className="tags">
+                      <RemotePill j={j} />
+                      {(srcRank[j.source] ?? 3) >= 4 && <span className="pill">Priority feed</span>}
+                      <HitPills hits={m?.hits} max={6} />
+                      {j.scope.groups.map((g) => (
+                        <span className="pill" key={g}>
+                          {g} · group match
+                        </span>
+                      ))}
+                      {(mode === "eligibility" ? j.eligibility : j.scope).unknown && (
+                        <span className="pill amber">Scope unknown</span>
+                      )}
+                      {(mode === "eligibility" ? j.eligibility : j.scope).uncertain && (
+                        <span className="pill amber">Restrictions need review</span>
+                      )}
                     </div>
-                  </motion.article>
-                );
-              })}
-            </AnimatePresence>
+                    <JobActions id={j.id} st={st} guest={guest} />
+                  </div>
+                </motion.article>
+              );
+            })}
           </div>
         )}
         {shown < total && (

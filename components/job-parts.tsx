@@ -23,12 +23,12 @@ export function MatchBadge({ m, company }: { m?: JobMatch | null; company: strin
 }
 
 /** Pipeline-state pill (Applied / Cancelled / Ignored) — hidden while listed. */
-export function StatusPill({ st, stAt }: { st: JobStatus | "listed"; stAt: number }) {
+export function StatusPill({ st, stAt, now }: { st: JobStatus | "listed"; stAt: number; now: number }) {
   if (st === "listed") return null;
   return (
     <span className={"pill" + (st === "applied" ? " green" : st === "cancelled" ? " amber" : "")}>
       {st[0].toUpperCase() + st.slice(1)}
-      {stAt ? " · " + new Date(stAt).toLocaleDateString() : ""}
+      {stAt ? " · " + relTime(stAt, now) : ""}
     </span>
   );
 }
@@ -55,7 +55,7 @@ export function JobHead({
           {j.company} · via <Favicon source={j.source} /> {sourceName(j.source)}
         </span>
         <span className="job-st">
-          <StatusPill st={st} stAt={stAt} />
+          <StatusPill st={st} stAt={stAt} now={now} />
           <span title={j.posted ? new Date(j.posted).toLocaleString() : undefined}>{relTime(j.posted, now)}</span>
         </span>
       </div>

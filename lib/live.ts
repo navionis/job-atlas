@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { JobStatus, Snapshot } from "./types";
 
@@ -54,13 +54,25 @@ export function useSnapshot(): Snap {
   }, []);
   return s;
 }
+// `snap` is module state: a fetch/SSE update can land between SSR and this
+// component's hydration (the layout hydrates and starts streams first), so the
+// hydration render must force `initial` or it won't match the server HTML.
+// getServerSnapshot→false covers SSR + hydration; the client snapshot flips
+// true right after, without a setState-in-effect.
+const useHydrated = () =>
+  useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 export function useLiveData(initial: Snapshot): Snap {
   const s = useSnapshot();
+  const hydrated = useHydrated();
   useEffect(() => {
     if (!snap.touched) emit({ data: initial });
   }, [initial]);
-  const data = s.touched ? s.data : initial;
-  const loading = s.loading && !data.jobs.length && !data.updatedAt;
+  const data = hydrated && s.touched ? s.data : initial;
+  const loading = (!hydrated || s.loading) && !data.jobs.length && !data.updatedAt;
   return { ...s, data, loading };
 }
 export function mark(id: string, status: JobStatus): Promise<void> {
@@ -145,5 +157,8 @@ export function updateProfileMeta(p: ProfileMeta) {
 }
 export function useLiveProfileMeta(initial: ProfileMeta, enabled = true): ProfileMeta {
   const p = useProfileMeta(enabled);
-  return enabled && metaTouched ? p : initial;
+  // Same hydration rule as useLiveData — the profile fetch can resolve before
+  // this component hydrates, so live meta is gated on mount, not just touched.
+  const hydrated = useHydrated();
+  return enabled && hydrated && metaTouched ? p : initial;
 }
