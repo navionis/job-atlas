@@ -241,10 +241,11 @@ async function refresh(f: Feed, force = false) {
     try {
       for (const r of requests) {
         let response = await request(r);
-        // CDN bot checks (e.g. Cloudflare on hnhiring) flap 403s; one delayed
-        // retry usually clears them — otherwise the feed is parked for its TTL.
-        if (response.status === 403) {
-          await new Promise((res) => setTimeout(res, 2500));
+        // CDN bot checks (e.g. Cloudflare) flap 403s; two spaced retries clear
+        // most windows — otherwise the feed is parked for its TTL.
+        for (const delay of [2500, 8000]) {
+          if (response.status !== 403) break;
+          await new Promise((res) => setTimeout(res, delay));
           response = await request(r);
         }
         if (!response.ok) {

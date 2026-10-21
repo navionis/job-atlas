@@ -294,10 +294,10 @@ export const catalog = [
   {
     id: "cryptojobslist",
     name: "CryptoJobsList",
-    access: "Public listing page (embedded JSON)",
+    access: "Public RSS feed",
     limit: "No published quota; conservative refresh",
     cadence: "6 hours (app policy)",
-    coverage: "Latest listings · first page",
+    coverage: "Latest ~100 listings · RSS",
     url: "https://cryptojobslist.com/",
     implemented: true,
   },

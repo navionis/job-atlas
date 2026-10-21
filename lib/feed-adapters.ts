@@ -62,11 +62,17 @@ const list = (s: string | undefined) =>
     .slice(0, 20);
 // Getro powers both getro.com's collections and network boards like
 // jobs.solana.com — same response shape, different collection id.
-const getro = (collection: number) => (page: number) => ({
+// A board Referer/Origin keeps the WAF's POST scrutiny low.
+const getro = (collection: number, board = "https://jobs.jumpcrypto.com") => (page: number) => ({
   url: `https://api.getro.com/api/v2/collections/${collection}/search/jobs`,
   init: {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Origin: board,
+      Referer: board + "/",
+    },
     body: JSON.stringify({ hits_per_page: 100, page, filters: {} }),
   },
 });
@@ -237,24 +243,41 @@ function rssItems(xml: string): Row[] {
   }
   return items;
 }
-function cryptojobslistJobs(html: string): Job[] {
-  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-  if (!m) return [];
-  const jobs = JSON.parse(m[1]).props?.pageProps?.jobs || [];
-  return jobs
-    .filter((r: Row) => r.published !== false && !r.filled)
-    .map((r: Row) =>
-      job("cryptojobslist", {
-        id: r.id || r._id?.$oid || r.seoSlug,
-        title: r.jobTitle,
-        company: r.companyName,
-        url: "https://cryptojobslist.com/jobs/" + r.seoSlug,
-        location: r.jobLocation,
-        remote: r.remote,
-        posted: r.publishedAt,
-        tags: [...(r.tags || []), r.salaryString].filter(Boolean),
-      }),
-    );
+// cryptojobslist.com sits behind a Cloudflare challenge for server fetches,
+// but its public RSS carries the same latest ~100 listings — company via
+// dc:creator, location via media:location, skills in the "Tags:" anchors.
+function cryptojobslistJobs(xml: string): Job[] {
+  return rssItems(xml).map((r) => {
+    const link = plain(r.link).split("?")[0];
+    // The Tags block ends at the next paragraph — it has no closing </p>.
+    const tagHtml = (r.description.match(/<p>Tags:([\s\S]*?)(?=<p>)/) || [])[1] || "";
+    const tags = [
+      ...new Set(
+        [...tagHtml.matchAll(/<a [^>]*>([\s\S]*?)<\/a>/g)]
+          .map((m) =>
+            plain(m[1])
+              .replace(/\s+Jobs$/, "")
+              .replace(/^(Web3|Blockchain|Cryptocurrency|Crypto|Bitcoin)\s+/, ""),
+          )
+          .filter((t) => t && !/^(senior|full time|part time)$/i.test(t)),
+      ),
+    ].slice(0, 6);
+    const summary = r.description
+      .replace(/<img[^>]*>/g, "")
+      .replace(/<p>Tags:[\s\S]*?<\/p>/, "")
+      .replace(/<strong>Apply here[\s\S]*$/, "");
+    const location = plain(r.location);
+    return job("cryptojobslist", {
+      id: (plain(r.guid) || link).split("/").pop(),
+      title: r.title,
+      company: r.creator,
+      url: link,
+      location,
+      remote: /remote|worldwide|anywhere/i.test(location),
+      summary,
+      tags,
+    });
+  });
 }
 // RSS titles are "Job Application for {role} at {company} at {company}" — the
 // description "at {company} - {type} - {location}" carries the clean fields.
@@ -658,10 +681,10 @@ export function feeds(): Feed[] {
     {
       id: "solana",
       provider: "solana",
-      ...getro(858)(1),
+      ...getro(858, "https://jobs.solana.com")(1),
       ttl: 6 * H,
       pages: 3,
-      pageUrl: getro(858),
+      pageUrl: getro(858, "https://jobs.solana.com"),
       map: getroJobs("solana"),
     },
     {
@@ -691,7 +714,7 @@ export function feeds(): Feed[] {
     {
       id: "cryptojobslist",
       provider: "cryptojobslist",
-      url: "https://cryptojobslist.com/",
+      url: "https://api.cryptojobslist.com/jobs.rss",
       ttl: 6 * H,
       html: true,
       map: cryptojobslistJobs,
