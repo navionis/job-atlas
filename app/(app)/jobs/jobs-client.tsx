@@ -30,10 +30,6 @@ const DAY_HOURS: [value: string, label: string, hours: number][] = [
   ["24h", "Last 24h", 24],
   ["48h", "Last 48h", 48],
   ["3d", "Last 3 days", 72],
-  ["7d", "Last week", 168],
-  ["14d", "Last 2 weeks", 336],
-  ["30d", "Last month", 720],
-  ["90d", "Last 3 months", 2160],
 ];
 const DAYS = DAY_HOURS.map(([value, label]) => ({ value, label }));
 const LEGACY_DAYS: Record<string, string> = { today: "24h", yesterday: "48h" };
