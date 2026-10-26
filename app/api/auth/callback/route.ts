@@ -1,10 +1,6 @@
 import { ensureAdmin } from "../../../../lib/feeds";
-import { cookieValue, sessionCookieHeader } from "../../../../lib/auth";
+import { cookieValue, sessionCookieHeader, safeNext } from "../../../../lib/auth";
 import { originOf } from "../../../../lib/auth";
-
-function safeNext(v: string | null): string {
-  return v && v.startsWith("/") && !v.startsWith("//") ? v : "/";
-}
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {

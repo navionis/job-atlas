@@ -157,7 +157,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const selected = country || group;
   const homeName = countries.find((c) => c.code === remoteTo)?.name || "";
   const name = countries.find((c) => c.code === country)?.name || group || "Everywhere";
-  const terms = useMemo(() => (query ? [query.toLowerCase()] : []), [query]);
+  const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
   const statuses = useMemo(() => data.statuses || {}, [data.statuses]);
   const now = useServerClock(data.serverAt, initial.serverAt || 0);
   // Rolling windows anchored to server time — "Last 24h" means the past 24
@@ -171,9 +171,15 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     () =>
       data.jobs
         .filter((j) => {
+          // Every term must land somewhere — title, company, location, source,
+          // or tags. Location inclusion is what makes "London"/"Vienna" work.
           if (
             terms.length &&
-            !terms.some((t) => `${j.title} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(t))
+            !terms.every((t) =>
+              `${j.title} ${j.company} ${j.location} ${sourceName(j.source)} ${j.tags.join(" ")}`
+                .toLowerCase()
+                .includes(t),
+            )
           )
             return false;
           if (!inWindow(j, statuses[j.id]?.at || 0, cutoff, "all")) return false;
@@ -447,22 +453,47 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                 </button>
               </>
             ) : tab === "all" ? (
-              <>
-                <h3>No listings in the loaded feeds.</h3>
-                <p>The connected sources returned no jobs yet — check their status or connect more.</p>
-                <Link className="primary" href="/sources">
-                  Check source coverage <ArrowUpRight size={13} />
-                </Link>
-              </>
+              data.jobs.length > 0 ? (
+                <>
+                  <h3>No jobs match your search.</h3>
+                  <p>
+                    {data.jobs.length} listings are loaded — none match
+                    {query ? ` “${query}”` : " the current filters"}
+                    {days ? " in this date range" : ""}.
+                  </p>
+                  <button className="primary" onClick={() => setParams({ q: null, days: null }, true)}>
+                    Clear search <ArrowUpRight size={13} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3>No listings in the loaded feeds.</h3>
+                  <p>The connected sources returned no jobs yet — check their status or connect more.</p>
+                  <Link className="primary" href="/sources">
+                    Check source coverage <ArrowUpRight size={13} />
+                  </Link>
+                </>
+              )
             ) : (
               <>
                 <h3>No matching listings yet.</h3>
-                <p>
-                  This does not mean there are no jobs in {name}.<br />
-                  Your search preferences or the connected sources may not cover it.
-                </p>
-                <Link className="primary" href="/profile#filters">
-                  Adjust search preferences <ArrowUpRight size={13} />
+                {query ? (
+                  <p>
+                    {data.jobs.length} listings are loaded — none match “{query}” under your current preferences.
+                  </p>
+                ) : (
+                  <p>
+                    This does not mean there are no jobs in {name}.<br />
+                    Your search preferences or the connected sources may not cover it.
+                  </p>
+                )}
+                {query ? (
+                  <button className="primary" onClick={() => setQuery("")}>
+                    Clear search <ArrowUpRight size={13} />
+                  </button>
+                ) : null}
+                <Link className={query ? "text-button" : "primary"} href="/profile#filters">
+                  Adjust search preferences {query ? null : <ArrowUpRight size={13} />}
                 </Link>
                 <Link className="text-button" href="/sources">
                   Check coverage &amp; connect more sources

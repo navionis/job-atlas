@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Mail } from "lucide-react";
 import { Spinner } from "../../components/loader";
 
-export default function EmailForm() {
+export default function EmailForm({ next }: { next?: string }) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [msg, setMsg] = useState("");
@@ -14,7 +14,7 @@ export default function EmailForm() {
       const r = await fetch("/api/auth/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, next }),
       });
       if (r.ok) setState("sent");
       else {

@@ -43,7 +43,9 @@ function job(source: string, r: Row): Job {
     tags: (r.tags || []).map(plain),
     scope: parseScope(location),
     eligibility: parseScope(elig),
-    summary: plain(r.summary).slice(0, 1200),
+    // ~400 chars keeps match scoring + schedule detection intact while cutting
+    // the heaviest field out of every serialized snapshot/page payload.
+    summary: plain(r.summary).slice(0, 400),
   };
 }
 function safeUrl(v: any) {
@@ -445,6 +447,10 @@ const HN_SEP = /\s*[|—–]\s*/;
 // from hnhiring.com markup or the Algolia HN API.
 function hnCommentJob(body: string, id: string, posted: string | undefined): Job | null {
   const head = plain(body.split(/<p[ >]|<br/i)[0]);
+  // "Who wants to be hired" seeker posts share the thread's pipe format —
+  // signature fields (willing to relocate, résumé/cv, technologies) mark them.
+  if (/willing to relocate|r[ée]sum[ée]\/cv|resume\/cv|available for hire|seeking (a )?(role|position)/i.test(head))
+    return null;
   const segs = head
     .split(HN_SEP)
     .map((s) => s.trim())

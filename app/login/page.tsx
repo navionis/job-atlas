@@ -9,8 +9,12 @@ import { Check } from "lucide-react";
 import { AtlasMark } from "../../components/atlas-mark";
 import GoogleButton from "./google-button";
 import EmailForm from "./email-form";
-export default async function Login({ searchParams }: { searchParams: Promise<{ error?: string; mode?: string }> }) {
-  const { error, mode } = await searchParams;
+export default async function Login({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; mode?: string; next?: string }>;
+}) {
+  const { error, mode, next } = await searchParams;
   const signup = mode === "signup";
   return (
     <main className="login-page">
@@ -92,9 +96,9 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
           ) : error ? (
             <div className="alert">Sign-in failed. Please try again.</div>
           ) : null}
-          <GoogleButton signup={signup} />
+          <GoogleButton signup={signup} next={next} />
           <div className="login-divider">or</div>
-          <EmailForm />
+          <EmailForm next={next} />
           <small>
             Email links are one-time and expire in 10 minutes.
             <br />

@@ -107,7 +107,10 @@ export function JobActions({
   const [busy, setBusy] = useState(false);
   const doMark = (status: JobStatus) => {
     if (guest) {
-      router.push("/login" + (next ? `?next=${encodeURIComponent(next)}` : ""));
+      // Default return destination is wherever the action was pressed — the
+      // card's list view or the detail page, params included.
+      const dest = next || window.location.pathname + window.location.search;
+      router.push("/login?next=" + encodeURIComponent(dest));
       return;
     }
     setBusy(true);

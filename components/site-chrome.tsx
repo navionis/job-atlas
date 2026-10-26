@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Sun, Moon, ArrowUp, LayoutDashboard, Compass, Rss, UserRound, ShieldCheck, LogOut } from "lucide-react";
 import { AtlasMark } from "./atlas-mark";
@@ -28,6 +28,7 @@ const GUEST_MNAV = [...MNAV.slice(0, 3), { href: "/login", label: "Sign in", Ico
 
 export function SiteHeader({ me, admin = false }: { me: Session | null; admin?: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { connection } = useSnapshot();
   const [scrolled, setScrolled] = useState(false);
   const scrolledRef = useRef(false);
@@ -174,7 +175,16 @@ export function SiteHeader({ me, admin = false }: { me: Session | null; admin?: 
             )}
           </div>
         ) : (
-          <Link className="signin" href="/login">
+          <Link
+            className="signin"
+            href={"/login?next=" + encodeURIComponent(pathname)}
+            onClick={(e) => {
+              // Capture the full URL (incl. filters/search params) at click
+              // time — SSR-rendered href only carries the pathname.
+              e.preventDefault();
+              router.push(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+            }}
+          >
             Sign in
           </Link>
         )}
@@ -218,6 +228,7 @@ export function SiteFooter({ me }: { me: Session | null }) {
           {me && <Link href="/jobs">Matched for you</Link>}
           <Link href="/sources">Sources</Link>
           {me ? <Link href="/profile">Profile</Link> : <Link href="/login">Sign in</Link>}
+          <Link href="/privacy">Privacy</Link>
         </div>
         <div className="foot-note">
           <span>Source-linked · No fabricated listings</span>

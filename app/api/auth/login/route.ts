@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { originOf } from "../../../../lib/auth";
+import { originOf, safeNext } from "../../../../lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
@@ -15,8 +15,8 @@ export async function GET(request: Request) {
   // Without this, an attacker could feed a victim a callback URL carrying the
   // attacker's own auth code and log the victim into the attacker's account.
   const nonce = randomBytes(16).toString("base64url");
-  const next = new URL(request.url).searchParams.get("next");
-  url.searchParams.set("state", `${nonce}.${next && next.startsWith("/") && !next.startsWith("//") ? next : "/"}`);
+  const next = safeNext(new URL(request.url).searchParams.get("next"));
+  url.searchParams.set("state", `${nonce}.${next}`);
   return new Response(null, {
     status: 302,
     headers: {

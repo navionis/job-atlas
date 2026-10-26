@@ -22,10 +22,11 @@ const G = (
     />
   </svg>
 );
-export default function GoogleButton({ signup }: { signup: boolean }) {
+export default function GoogleButton({ signup, next }: { signup: boolean; next?: string }) {
   const [loading, setLoading] = useState(false);
+  const href = "/api/auth/login" + (next ? `?next=${encodeURIComponent(next)}` : "");
   return (
-    <a className={"google-btn" + (loading ? " loading" : "")} href="/api/auth/login" onClick={() => setLoading(true)}>
+    <a className={"google-btn" + (loading ? " loading" : "")} href={href} onClick={() => setLoading(true)}>
       {loading ? <Spinner size={17} /> : G}
       <span>{loading ? "Redirecting to Google…" : signup ? "Sign up with Google" : "Continue with Google"}</span>
     </a>

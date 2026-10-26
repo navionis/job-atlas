@@ -27,6 +27,7 @@ async function valid(value: string, secret: string) {
 const isPublic = (p: string) =>
   p === "/" ||
   p === "/login" ||
+  p === "/privacy" ||
   p === "/opengraph-image" ||
   p === "/icon" ||
   p === "/apple-icon" ||
@@ -83,7 +84,7 @@ export default async function proxy(req: NextRequest) {
   if (!authed && !isPublic(path)) {
     res = path.startsWith("/api/")
       ? NextResponse.json({ error: "Sign in required" }, { status: 401 })
-      : NextResponse.redirect(new URL("/login", req.url));
+      : NextResponse.redirect(new URL("/login?next=" + encodeURIComponent(path + req.nextUrl.search), req.url));
   } else {
     // Forward the nonce to server components via the request headers — they
     // read it through next/headers and stamp it on inline scripts.

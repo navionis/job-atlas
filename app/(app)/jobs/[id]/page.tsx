@@ -1,8 +1,7 @@
-import { Suspense } from "react";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { snapshot, loadSnapshot } from "../../../../lib/feeds";
+import { loadSnapshot, findJobById } from "../../../../lib/feeds";
 import { currentSession } from "../../../../lib/auth";
 import { jobsMeta } from "../../../../lib/profiles";
 import { sourceName } from "../../../../lib/catalog";
@@ -10,16 +9,15 @@ import JobClient from "./job-client";
 
 export const dynamic = "force-dynamic";
 
-const findJob = async (raw: string) => {
-  const id = decodeURIComponent(raw);
-  const snap = await snapshot("").catch(() => null);
-  return { id, job: snap?.jobs.find((j) => j.id === id) };
-};
+// Params arrive URL-decoded from the router — decoding again would mangle ids
+// that legitimately contain "%" sequences.
+const findJob = async (id: string) => ({ id, job: await findJobById(id) });
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id: raw } = await params;
   const { id, job } = await findJob(raw);
-  if (!job) return { title: "Listing unavailable" };
+  // Missing/probe listings must not index — soft-404 the crawlers out.
+  if (!job) return { title: "Listing unavailable", robots: { index: false, follow: false } };
   const desc = (
     job.summary ||
     `${job.title} at ${job.company} — ${job.location}${job.remote ? " · Remote" : ""}. Aggregated by Job Atlas.`
@@ -65,9 +63,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   return (
     <>
       <script nonce={nonce} type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJob }} />
-      <Suspense fallback={null}>
-        <JobClient id={id} initial={initial} meta={meta} />
-      </Suspense>
+      <JobClient id={id} initial={initial} meta={meta} />
     </>
   );
 }

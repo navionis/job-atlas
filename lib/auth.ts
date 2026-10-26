@@ -30,6 +30,11 @@ export async function currentSession(): Promise<Session | null> {
 }
 export const unauthorized = () => Response.json({ error: "Sign in required" }, { status: 401 });
 export const forbidden = () => Response.json({ error: "Bad origin" }, { status: 403 });
+/** Internal-only redirect target — rejects absolute URLs, protocol-relative
+ *  "//host", backslash tricks ("/\\host" normalizes to "//host" in browsers),
+ *  and control/space chars so ?next= can never become an open redirect. */
+export const safeNext = (v: string | null | undefined): string =>
+  v && v.startsWith("/") && !v.startsWith("//") && !/[\\\s]/.test(v) ? v : "/";
 /** Canonical origin for building absolute links — APP_ORIGIN wins, then a
  *  host allowlist (APP_HOSTS), else the request's own host. */
 export function originOf(request: Request) {

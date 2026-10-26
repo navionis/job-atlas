@@ -33,7 +33,13 @@ export function refresh() {
 function startSnapshot() {
   if (snapStarted) return;
   snapStarted = true;
-  void load();
+  // Skip the immediate /api/jobs fetch when SSR already shipped a populated
+  // snapshot — otherwise every first load downloads the full jobs payload
+  // twice. Defer one tick so useLiveData's emit(initial) lands first; only
+  // fetch when no server data arrived (SSR collect failed, empty state).
+  setTimeout(() => {
+    if (!snap.data.updatedAt) void load();
+  }, 0);
   const events = new EventSource("/api/events");
   events.onopen = () => emit({ connection: "Auto-updates connected" });
   events.addEventListener("snapshot", (e) => emit({ data: JSON.parse(e.data), loading: false, error: "" }));

@@ -387,6 +387,30 @@ export async function dbConsumeEmailToken(hash: string): Promise<string | null> 
     return null;
   }
 }
+export async function dbGetJob(jobId: string): Promise<Job | null> {
+  try {
+    const { db } = await conn();
+    const rows = await db.select().from(jobsTable).where(eq(jobsTable.jobId, jobId));
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r.jobId,
+      source: r.source,
+      title: r.title,
+      company: r.company,
+      url: r.url,
+      location: r.location,
+      remote: r.remote,
+      posted: r.posted ? r.posted.toISOString() : "",
+      tags: r.tags || [],
+      scope: r.scope as Job["scope"],
+      eligibility: r.eligibility as Job["eligibility"],
+      summary: r.summary,
+    };
+  } catch {
+    return null;
+  }
+}
 export async function upsertJobs(rows: Job[]) {
   try {
     const { db } = await conn();

@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { snapshot } from "../../../../lib/feeds";
+import { findJobById } from "../../../../lib/feeds";
 import { sourceName } from "../../../../lib/catalog";
 import { OgShell, OgBrand, OgFoot } from "../../../../components/og";
 
@@ -9,9 +9,8 @@ export const contentType = "image/png";
 export const dynamic = "force-dynamic";
 
 export default async function OgImage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: raw } = await params;
-  const snap = await snapshot("").catch(() => null);
-  const j = snap?.jobs.find((x) => x.id === decodeURIComponent(raw));
+  const { id } = await params;
+  const j = await findJobById(id);
   const src = j ? sourceName(j.source) : "";
   return new ImageResponse(
     <OgShell pad={64}>

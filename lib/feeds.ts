@@ -16,6 +16,7 @@ import {
   dbSetAdmin,
   dbSaveFeed,
   dbSaveAttempts,
+  dbGetJob,
 } from "./db";
 import { listProfileEmails } from "./profiles";
 import { stampServerTime } from "./time";
@@ -260,7 +261,9 @@ async function refresh(f: Feed, force = false) {
       jobs.push(...(await f.fallback()));
       detail = "Primary unreachable — served via HN thread mirror";
     }
-    const found = jobs.filter((j) => j.title && j.url);
+    // Probe/test records are dropped at ingest so they never reach the live
+    // snapshot, the persisted jobs table, search, or status tracking.
+    const found = jobs.filter((j) => j.title && j.url && !isNonJob(j));
     e.jobs = found;
     e.fetched = Date.now();
     e.status = "connected";
@@ -403,6 +406,7 @@ async function collect(): Promise<Snapshot> {
   const seen = new Set<string>();
   const jobs = enabled
     .flatMap((f) => shared.state.entries[f.id]?.jobs || [])
+    .filter((j) => !isNonJob(j))
     .filter((j) => {
       const k = j.url.split("?")[0];
       if (seen.has(k)) return false;
@@ -440,4 +444,32 @@ const emptySnapshot = (): Snapshot => ({ jobs: [], sources: [], statuses: {}, up
 /** Snapshot for page render — never throws, and stamped with the server clock. */
 export async function loadSnapshot(email = ""): Promise<Snapshot> {
   return stampServerTime(await snapshot(email).catch(emptySnapshot));
+}
+
+// Self-declared non-jobs — security probes whose own text says "no hiring" or
+// "authorized testing only", probe-lane companies, probe IDs, and HN "who
+// wants to be hired" seeker posts leaking into the hiring feed. Patterns are
+// scoped so real jobs survive: "Probe Engineer" titles, pentest JDs that say
+// "authorized security testing" without "only", and anything containing the
+// ordinary word "test".
+const NONJOB_SUMMARY =
+  /no hiring (occurs|will occur)|for authorized (security )?testing only|probe job description|probe posting|security assessment probe|controlled (test|probe)|owner-commissioned grant|job posting flow|used only to verify/i;
+const NONJOB_COMPANY = /\b(probe|replay|selfref)\s+company\b/i;
+const NONJOB_ID = /\b(dwpa|bci)[-_]|idor[- ]probe|amountzero/i;
+const NONJOB_TITLE = /\b(idor|price|replay|security|assessment|xss|sqli)\s+probe\b|\bprobe\s+(job|posting|solidity)\b/i;
+const SEEKER_POST = /willing to relocate|r[ée]sum[ée]\/cv|available for hire/i;
+export const isNonJob = (j: Job) =>
+  NONJOB_SUMMARY.test(j.summary || "") ||
+  NONJOB_COMPANY.test(j.company) ||
+  NONJOB_ID.test(j.id) ||
+  NONJOB_TITLE.test(j.title) ||
+  SEEKER_POST.test(`${j.title} ${j.company}`);
+
+/** Live snapshot first, persisted jobs table as fallback — a card may still be
+ *  open when the listing ages out of the live set, and the detail page must
+ *  not 404 on it. Non-job records resolve as not-found. */
+export async function findJobById(id: string): Promise<Job | null> {
+  const snap = await snapshot("").catch(() => null);
+  const job = snap?.jobs.find((j) => j.id === id) || (pgEnabled() ? await dbGetJob(id) : null);
+  return job && !isNonJob(job) ? job : null;
 }
