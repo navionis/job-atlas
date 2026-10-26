@@ -1,14 +1,4 @@
-import {
-  bigint,
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  primaryKey,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { Job, JobStatus } from "./types";
 import type { Scope } from "./geo";
@@ -51,7 +41,9 @@ export const jobs = pgTable(
     index("jobs_posted_idx").on(t.posted.desc()),
     index("jobs_company_idx").on(t.company),
     index("jobs_last_seen_idx").on(t.lastSeen.desc()),
-    index("jobs_remote_posted_idx").on(t.posted.desc()).where(sql`${t.remote}`),
+    index("jobs_remote_posted_idx")
+      .on(t.posted.desc())
+      .where(sql`${t.remote}`),
     index("jobs_tags_gin").using("gin", sql`${t.tags} jsonb_path_ops`),
   ],
 );
@@ -89,4 +81,13 @@ export const feedDisabled = pgTable("feed_disabled", {
 
 export const admins = pgTable("admins", {
   email: text("email").primaryKey(),
+});
+
+// Single-use magic-link tokens — the sha256 of the emailed token is stored,
+// never the token itself. Consumed atomically (used_at set once).
+export const emailTokens = pgTable("email_tokens", {
+  hash: text("hash").primaryKey(),
+  email: text("email").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
 });

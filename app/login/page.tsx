@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { AtlasMark } from "../../components/atlas-mark";
 import GoogleButton from "./google-button";
+import EmailForm from "./email-form";
 export default async function Login({ searchParams }: { searchParams: Promise<{ error?: string; mode?: string }> }) {
   const { error, mode } = await searchParams;
   const signup = mode === "signup";
@@ -79,21 +80,25 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
           <h2>{signup ? "Create your account" : "Welcome back"}</h2>
           <p>
             {signup
-              ? "Sign up with your Google account to start tracking roles."
-              : "Sign in with your Google account to continue."}
+              ? "Sign up with Google or a one-time email link to start tracking roles."
+              : "Sign in with Google or a one-time email link."}
           </p>
           {error === "denied" ? (
             <div className="alert">This Google account could not be verified.</div>
+          ) : error === "link" ? (
+            <div className="alert">That sign-in link is invalid or has expired. Request a new one.</div>
           ) : error === "config" ? (
             <div className="alert">Sign-in is temporarily unavailable. Please try again later.</div>
           ) : error ? (
             <div className="alert">Sign-in failed. Please try again.</div>
           ) : null}
           <GoogleButton signup={signup} />
+          <div className="login-divider">or</div>
+          <EmailForm />
           <small>
-            Sign in with any Google account.
+            Email links are one-time and expire in 10 minutes.
             <br />
-            More sign-in methods coming later.
+            Same account either way — no password needed.
           </small>
         </div>
       </div>

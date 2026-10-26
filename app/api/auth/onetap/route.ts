@@ -2,7 +2,7 @@ import { ensureAdmin } from "../../../../lib/feeds";
 import { sessionCookieHeader } from "../../../../lib/auth";
 import { withOrigin } from "../../../../lib/guard";
 import { clientIp, rateLimit } from "../../../../lib/rate-limit";
-import { originOf } from "../login/route";
+import { originOf } from "../../../../lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 

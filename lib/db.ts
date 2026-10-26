@@ -1,8 +1,17 @@
 import { Pool } from "pg";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import * as tables from "./schema";
-import { admins, feedAttempts, feedDisabled, feedState, jobs as jobsTable, jobStatusUser, profiles } from "./schema";
+import {
+  admins,
+  emailTokens,
+  feedAttempts,
+  feedDisabled,
+  feedState,
+  jobs as jobsTable,
+  jobStatusUser,
+  profiles,
+} from "./schema";
 import type { Job, StatusEntry } from "./types";
 
 type Entry = { jobs: Job[]; next: number; fetched: number; status: string; detail: string };
@@ -102,9 +111,7 @@ async function conn(): Promise<{ pool: Pool; db: NodePgDatabase<typeof tables> }
       await pool.query(`create index if not exists jobs_company_idx on jobs(company)`);
       await pool.query(`create index if not exists jobs_last_seen_idx on jobs(last_seen desc)`);
       // Remote-first queries hit a compact partial index instead of full scans.
-      await pool.query(
-        `create index if not exists jobs_remote_posted_idx on jobs(posted desc) where remote`,
-      );
+      await pool.query(`create index if not exists jobs_remote_posted_idx on jobs(posted desc) where remote`);
       // Tag containment lookups (tags @> '["react"]') use jsonb_path_ops GIN.
       await pool.query(`create index if not exists jobs_tags_gin on jobs using gin(tags jsonb_path_ops)`);
       await pool.query(
@@ -124,6 +131,9 @@ async function conn(): Promise<{ pool: Pool; db: NodePgDatabase<typeof tables> }
       await pool.query(`create table if not exists profiles(email text primary key,data jsonb not null default '{}')`);
       await pool.query(`create table if not exists feed_disabled(feed_id text primary key)`);
       await pool.query(`create table if not exists admins(email text primary key)`);
+      await pool.query(
+        `create table if not exists email_tokens(hash text primary key,email text not null,expires_at timestamptz not null,used_at timestamptz)`,
+      );
       return pool;
     })().catch((e) => {
       boot = undefined;
@@ -341,6 +351,27 @@ export async function dbSaveProfile(email: string, data: any) {
       .values({ email, data })
       .onConflictDoUpdate({ target: profiles.email, set: { data: sql`excluded.data` } });
   } catch {}
+}
+export async function dbCreateEmailToken(hash: string, email: string, expiresAt: number) {
+  try {
+    const { db } = await conn();
+    await db.insert(emailTokens).values({ hash, email, expiresAt: new Date(expiresAt) });
+  } catch {}
+}
+/** Atomic single-use consume — sets used_at iff the token is still unused. */
+export async function dbConsumeEmailToken(hash: string): Promise<string | null> {
+  try {
+    const { db } = await conn();
+    const rows = await db
+      .update(emailTokens)
+      .set({ usedAt: new Date() })
+      .where(and(eq(emailTokens.hash, hash), isNull(emailTokens.usedAt)))
+      .returning({ email: emailTokens.email, expiresAt: emailTokens.expiresAt });
+    const r = rows[0];
+    return r && r.expiresAt.getTime() > Date.now() ? r.email : null;
+  } catch {
+    return null;
+  }
 }
 export async function upsertJobs(rows: Job[]) {
   try {

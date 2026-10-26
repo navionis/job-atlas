@@ -30,6 +30,21 @@ export async function currentSession(): Promise<Session | null> {
 }
 export const unauthorized = () => Response.json({ error: "Sign in required" }, { status: 401 });
 export const forbidden = () => Response.json({ error: "Bad origin" }, { status: 403 });
+/** Canonical origin for building absolute links — APP_ORIGIN wins, then a
+ *  host allowlist (APP_HOSTS), else the request's own host. */
+export function originOf(request: Request) {
+  if (process.env.APP_ORIGIN) return process.env.APP_ORIGIN.replace(/\/$/, "");
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || new URL(request.url).host;
+  const proto = request.headers.get("x-forwarded-proto") || new URL(request.url).protocol.replace(":", "");
+  // Host-header poisoning guard: when APP_HOSTS is set, an untrusted Host
+  // falls back to the first allowed origin instead of being echoed into
+  // OAuth redirect_uri, emailed links, and Location headers.
+  const allowed = (process.env.APP_HOSTS || "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  return `${proto}://${allowed.length && !allowed.includes(host) ? allowed[0] : host}`;
+}
 /**
  * True when a mutating request comes from this deployment's own origin.
  * Browsers always send Origin on cross-site POSTs, so a missing header means

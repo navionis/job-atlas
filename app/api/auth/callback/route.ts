@@ -1,6 +1,6 @@
 import { ensureAdmin } from "../../../../lib/feeds";
 import { cookieValue, sessionCookieHeader } from "../../../../lib/auth";
-import { originOf } from "../login/route";
+import { originOf } from "../../../../lib/auth";
 
 function safeNext(v: string | null): string {
   return v && v.startsWith("/") && !v.startsWith("//") ? v : "/";
