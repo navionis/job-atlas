@@ -4,15 +4,26 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Search, MapPin, ArrowUpRight, CalendarDays, Compass, FileText, User, X } from "lucide-react";
+import {
+  Search,
+  MapPin,
+  ArrowUpRight,
+  ArrowDownWideNarrow,
+  CalendarDays,
+  Compass,
+  FileText,
+  User,
+  X,
+} from "lucide-react";
 import { Spinner } from "../../../components/loader";
 import { Select } from "../../../components/select";
 import { EASE } from "../../../components/motion";
 import { countries, scopeMatches } from "../../../lib/geo";
 import { sourceName } from "../../../lib/catalog";
-import { useLiveData, useLiveProfileMeta, refresh, useServerClock } from "../../../lib/live";
+import { useLiveData, useLiveProfileMeta, refresh, useAiMatch, useServerClock } from "../../../lib/live";
 import { rankJobs, type JobMatch } from "../../../lib/match";
 import { PillTabs } from "../../../components/pill-tabs";
+import AiMatchControl from "../../../components/ai-match";
 import { JobHead, RemotePill, HitPills, JobActions } from "../../../components/job-parts";
 import type { Job, Snapshot, JobsMeta } from "../../../lib/types";
 
@@ -49,6 +60,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const router = useRouter();
   const { data, loading, error } = useLiveData(initial);
   const { sourceRank: srcRank } = useLiveProfileMeta(meta, !guest);
+  const ai = useAiMatch(!guest);
   const sp = useSearchParams();
   const f = meta.filters;
   const country = f.country || "",
@@ -71,6 +83,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const statusFilter: JobStatus = validStatus(sp.get("status")) ? (sp.get("status") as JobStatus) : "listed";
   const rawDays = sp.get("days");
   const days = LEGACY_DAYS[rawDays || ""] || (DAYS.some((d) => d.value === rawDays) ? rawDays! : "");
+  const sortParam = sp.get("sort") === "source" || sp.get("sort") === "date" ? sp.get("sort")! : "";
   const hydrated = useRef(false);
   const query = sp.get("q") ?? "";
   const setParams = useCallback(
@@ -91,6 +104,10 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const setStatusFilter = (v: JobStatus) => setParams({ status: v === "listed" ? null : v }, true);
   const setQuery = (v: string) => setParams({ q: v });
   const setDays = (v: string) => setParams({ days: v || null }, true);
+  const matched = tab !== "all" && tab !== "profile";
+  const sortDef = matched ? "match" : "date";
+  const sort = sortParam || sortDef;
+  const setSort = (v: string) => setParams({ sort: v === sortDef ? null : v }, true);
   const [shown, setShown] = useState(PAGE);
   const pendingScroll = useRef<{ y: number; shown: number } | null>(null);
   const moreObs = useRef<IntersectionObserver | null>(null);
@@ -110,7 +127,6 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     obs.observe(el);
     moreObs.current = obs;
   }, []);
-  const matched = tab !== "all" && tab !== "profile";
   const filterKey = [
     tab,
     country,
@@ -124,6 +140,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     mode,
     unknown,
     days,
+    sort,
   ].join("|");
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
@@ -198,8 +215,28 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           if (!group) return true;
           return scopeMatches(s, group) || (unknown && (s.unknown || s.uncertain));
         })
-        .sort((a, b) => (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3) || b.posted.localeCompare(a.posted)),
-    [data.jobs, statuses, terms, tab, country, group, source, remote, remoteTo, sched, mode, unknown, srcRank, cutoff],
+        .sort(
+          sort === "source"
+            ? (a, b) => (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3) || b.posted.localeCompare(a.posted)
+            : (a, b) => b.posted.localeCompare(a.posted) || (srcRank[b.source] ?? 3) - (srcRank[a.source] ?? 3),
+        ),
+    [
+      data.jobs,
+      statuses,
+      terms,
+      tab,
+      country,
+      group,
+      source,
+      remote,
+      remoteTo,
+      sched,
+      mode,
+      unknown,
+      srcRank,
+      cutoff,
+      sort,
+    ],
   );
   const counts = useMemo(() => {
     const c: Record<string, number> = { listed: 0, applied: 0, cancelled: 0, ignored: 0 };
@@ -225,8 +262,19 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const ranked = useMemo(() => {
     if (!matched) return [];
     const r = meta.resumes.find((x) => x.id === tab);
-    return rankJobs(filtered, r ? r.keywords : meta.manual, meta.excluded, srcRank);
-  }, [matched, tab, filtered, meta.resumes, meta.manual, meta.excluded, srcRank]);
+    const list = rankJobs(filtered, r ? r.keywords : meta.manual, meta.excluded, srcRank);
+    // Pipeline tabs order by when the job was marked, not match score —
+    // rankJobs would otherwise re-scatter applied/cancelled/ignored items.
+    if (statusFilter === "applied" || statusFilter === "cancelled" || statusFilter === "ignored")
+      return [...list].sort((a, b) => (statuses[b.job.id]?.at || 0) - (statuses[a.job.id]?.at || 0));
+    if (sort === "date") return [...list].sort((a, b) => b.job.posted.localeCompare(a.job.posted));
+    if (sort === "source")
+      return [...list].sort(
+        (a, b) =>
+          (srcRank[b.job.source] ?? 3) - (srcRank[a.job.source] ?? 3) || b.job.posted.localeCompare(a.job.posted),
+      );
+    return list;
+  }, [matched, tab, filtered, meta.resumes, meta.manual, meta.excluded, srcRank, statusFilter, statuses, sort]);
   const total = matched ? ranked.length : filtered.length;
   // Snapshot scroll + loaded count when leaving for a detail page; on return
   // both are restored so the browser can land at the exact spot.
@@ -359,6 +407,18 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
               icon={<CalendarDays size={13} />}
             />
           </div>
+          <Select
+            compact
+            value={sort}
+            onChange={setSort}
+            options={[
+              ...(matched ? [{ value: "match", label: "Best match" }] : []),
+              { value: "date", label: "Newest first" },
+              { value: "source", label: "Top sources" },
+            ]}
+            ariaLabel="Sort order"
+            icon={<ArrowDownWideNarrow size={13} />}
+          />
         </div>
         <div className="section-title">
           <div>
@@ -388,6 +448,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           {tab !== "all" && (
             <span className="pill green">{mode === "eligibility" ? "Candidate scope" : "Location matching"}</span>
           )}
+          {!guest && <AiMatchControl run={ai.run} onStart={ai.start} />}
         </div>
         {tab !== "all" && chips.length > 0 && (
           <div className="active-filters">
@@ -548,6 +609,11 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                       <MapPin size={12} /> {j.location}
                     </p>
                     <div className="tags">
+                      {ai.matches[j.id] ? (
+                        <span className="pill green" title={ai.matches[j.id].reason}>
+                          AI {ai.matches[j.id].score}
+                        </span>
+                      ) : null}
                       <RemotePill j={j} />
                       {(srcRank[j.source] ?? 3) >= 4 && <span className="pill">Priority feed</span>}
                       <HitPills hits={m?.hits} max={6} />

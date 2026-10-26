@@ -1,0 +1,20 @@
+yarn run v1.22.22
+$ next dev
+▲ Next.js 16.4.3 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://198.18.4.113:3000
+- Environments: .env
+✓ Ready in 476ms
+✓ Running next.config.ts took 47ms
+
+ GET /manifest.webmanifest 200 in 119ms (next.js: 100ms, application-code: 19ms)
+ GET /jobs 200 in 6.4s (next.js: 56ms, proxy.ts: 5ms, application-code: 6.3s)
+ GET /jobs 200 in 15.2s (next.js: 2.2s, proxy.ts: 90ms, application-code: 12.9s)
+ GET /api/jobs 200 in 11.6s (next.js: 573ms, proxy.ts: 13ms, application-code: 11.0s)
+ GET /api/profile 200 in 11.1s (next.js: 236ms, proxy.ts: 9ms, application-code: 10.8s)
+ GET /api/agent/match 200 in 11.4s (next.js: 280ms, proxy.ts: 9ms, application-code: 11.1s)
+ PUT /api/profile 200 in 1205ms (next.js: 37ms, proxy.ts: 7ms, application-code: 1161ms)
+  Turbopack has seen frequent file updates and is waiting for the filesystem to settle (0.5s elapsed so far; last modified: "\\\\?\\C:\\Users\\Administrator\\Documents\\Github\\job-atlas\\node_modules\\next\\dist\\compiled\\busboy").
+[?25h
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

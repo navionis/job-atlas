@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { safeNext } from "../lib/auth";
 import { isNonJob } from "../lib/feeds";
+import { buildMatchPrompt, buildResumePrompt, parseKeywords, parseVerdicts } from "../lib/devin";
+import { relTime } from "../lib/time";
 import type { Job } from "../lib/types";
 
 const job = (over: Partial<Job>): Job => ({
@@ -82,4 +84,76 @@ test("isNonJob leaves genuine jobs alone", () => {
     !isNonJob(job({ summary: "You will conduct authorized security testing of client systems and report findings." })),
   );
   assert.ok(!isNonJob(job({ title: "Replay Systems Engineer", company: "Replay.io" })));
+});
+
+// ---- Devin AI match helpers ----------------------------------------------
+
+test("buildMatchPrompt embeds profile + slim jobs and forbids tool use", () => {
+  const p = buildMatchPrompt({ keywords: ["typescript"], excluded: ["php"], filters: { country: "gb" } }, [
+    job({ id: "a:1", summary: "x".repeat(900) }),
+  ]);
+  assert.ok(p.includes('"typescript"'));
+  assert.ok(p.includes('"a:1"'));
+  assert.ok(/Do not clone repositories/.test(p));
+  // Summaries are capped for prompt size.
+  assert.ok(!p.includes("x".repeat(500)));
+});
+
+test("parseVerdicts whitelists ids, clamps scores, tolerates junk", () => {
+  const valid = new Set(["a:1", "a:2"]);
+  const out = parseVerdicts(
+    {
+      matches: [
+        { id: "a:1", score: 142.4, reason: "strong skill overlap" },
+        { id: "evil:9", score: 99, reason: "hallucinated" },
+        { id: "a:2", score: -3 },
+        { score: 50 },
+      ],
+    },
+    valid,
+  );
+  assert.deepEqual(
+    out.map((m) => [m.id, m.score]),
+    [
+      ["a:1", 100],
+      ["a:2", 0],
+    ],
+  );
+  assert.equal(out[0].reason, "strong skill overlap");
+  assert.deepEqual(parseVerdicts(null, valid), []);
+  assert.deepEqual(parseVerdicts({ matches: "nope" }, valid), []);
+});
+
+test("buildResumePrompt embeds capped resume text and forbids tool use", () => {
+  const p = buildResumePrompt("cv.pdf", "text " + "x".repeat(30000));
+  assert.ok(p.includes("cv.pdf"));
+  assert.ok(/Do not clone repositories/.test(p));
+  assert.ok(p.length < 30000);
+});
+
+test("parseKeywords normalizes, dedupes, caps, tolerates junk", () => {
+  const out = parseKeywords({
+    keywords: [" TypeScript ", "TYPESCRIPT", "react", "", "x", "a".repeat(70), 42, null, "GraphQL"],
+    summary: "Full-stack engineer",
+  });
+  assert.deepEqual(out.keywords, ["typescript", "react", "42", "graphql"]);
+  assert.equal(out.summary, "Full-stack engineer");
+  assert.deepEqual(parseKeywords(null).keywords, []);
+  assert.deepEqual(parseKeywords({ keywords: "nope" }).keywords, []);
+  assert.equal(parseKeywords({ keywords: Array(60).fill("dup") }).keywords.length, 1); // dedupe before cap
+  assert.equal(parseKeywords({ keywords: Array.from({ length: 60 }, (_, i) => `kw${i}`) }).keywords.length, 40);
+});
+
+// ---- Relative timestamps ---------------------------------------------------
+
+test("relTime stays relative at every age", () => {
+  const now = Date.parse("2026-10-26T12:00:00Z");
+  assert.equal(relTime(now - 30000, now), "just now");
+  assert.equal(relTime(now - 45 * 60000, now), "45m ago");
+  assert.equal(relTime(now - 5 * 3600000, now), "5h ago");
+  assert.equal(relTime(now - 3 * 86400000, now), "3d ago");
+  assert.equal(relTime(now - 20 * 86400000, now), "2w ago");
+  assert.equal(relTime(now - 300 * 86400000, now), "10mo ago");
+  assert.equal(relTime(now - 800 * 86400000, now), "2y ago");
+  assert.equal(relTime("not-a-date", now), "Date unavailable");
 });

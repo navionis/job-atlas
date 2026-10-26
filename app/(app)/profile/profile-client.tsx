@@ -1,9 +1,11 @@
 "use client";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Upload, Trash2, FileText, Plus, X, User, ListPlus, Pencil, Check } from "lucide-react";
+import { Upload, Trash2, FileText, Plus, X, User, ListPlus, Pencil, Check, Sparkles } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { Spinner } from "../../../components/loader";
 import { FadeIn } from "../../../components/motion";
+import ResumeAiDialog from "../../../components/resume-ai-dialog";
 import { updateProfileMeta } from "../../../lib/live";
 import { FiltersPanel } from "../../../components/filters-panel";
 import type { DiscoverFilters } from "../../../lib/types";
@@ -80,7 +82,8 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
     [renaming, setRenaming] = useState(""),
     [aliasVal, setAliasVal] = useState(""),
     [deleting, setDeleting] = useState(""),
-    [confirming, setConfirming] = useState("");
+    [confirming, setConfirming] = useState(""),
+    [aiRun, setAiRun] = useState<{ id: string; name: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const apply = (d: Partial<ProfileData>) => {
     setPf((p) => ({ ...p, ...d }));
@@ -95,6 +98,8 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
       const d = await r.json();
       if (!r.ok) throw Error(d.error || "Upload failed");
       apply(d);
+      const fresh = (d.resumes || []).find((x: ResumeRow) => !pf.resumes.some((y) => y.id === x.id));
+      if (fresh) setAiRun({ id: fresh.id, name: fresh.name });
       toast.success(
         `"${f.name}" uploaded — ${d.resumes?.find((x: ResumeRow) => x.name === f.name)?.keywords.length ?? 0} keywords extracted`,
       );
@@ -268,6 +273,14 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
                 </div>
                 <button
                   className="resume-del edit"
+                  disabled={busy || !!aiRun}
+                  onClick={() => setAiRun({ id: r.id, name: r.alias || r.name })}
+                  title="Re-analyze with the Devin agent"
+                >
+                  <Sparkles size={13} />
+                </button>
+                <button
+                  className="resume-del edit"
                   disabled={busy || !!saving || !!deleting}
                   onClick={() => {
                     setRenaming(r.id);
@@ -415,6 +428,15 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
           <FiltersPanel value={filters} onChange={setFilters} onReset={resetFilters} busy={saving === "filters"} />
         </div>
       </div>
+      <AnimatePresence>
+        {aiRun && (
+          <ResumeAiDialog
+            resume={aiRun}
+            onApply={(d) => apply({ keywords: d.keywords ?? pf.keywords, resumes: d.resumes ?? pf.resumes })}
+            onClose={() => setAiRun(null)}
+          />
+        )}
+      </AnimatePresence>
     </FadeIn>
   );
 }

@@ -3,7 +3,7 @@ export function stampServerTime<T extends { serverAt?: number }>(s: T): T {
   return { ...s, serverAt: Date.now() };
 }
 
-/** Relative "3h ago"-style label; falls back to a short date for posts older than a week. */
+/** Relative "3d ago"-style label at every age: m → h → d → w → mo → y. */
 export function relTime(value: string | number, now = Date.now()): string {
   const t = typeof value === "string" ? Date.parse(value) : value;
   if (!t || Number.isNaN(t)) return "Date unavailable";
@@ -15,10 +15,9 @@ export function relTime(value: string | number, now = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  const d = new Date(t);
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(d.getFullYear() === new Date(now).getFullYear() ? {} : { year: "numeric" as const }),
-  });
+  const weeks = Math.floor(days / 7);
+  if (days < 30) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  if (days < 365) return `${months}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
 }

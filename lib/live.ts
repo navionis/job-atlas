@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import type { JobStatus, Snapshot } from "./types";
+import type { AgentMatch, JobStatus, Snapshot } from "./types";
 
 type Snap = { data: Snapshot; loading: boolean; error: string; connection: string; touched: boolean };
 type ProfileMeta = { keywords: string[]; sourceRank: Record<string, number> };
@@ -167,4 +167,59 @@ export function useLiveProfileMeta(initial: ProfileMeta, enabled = true): Profil
   // this component hydrates, so live meta is gated on mount, not just touched.
   const hydrated = useHydrated();
   return enabled && hydrated && metaTouched ? p : initial;
+}
+
+// ---- AI match (Devin session) -------------------------------------------
+export type AiRun = AgentMatch | { status: "idle" };
+let aiRun: AiRun = { status: "idle" };
+let aiLoaded = false;
+const aiSubs = new Set<(r: AiRun) => void>();
+const setAiRun = (r: AiRun) => {
+  aiRun = r;
+  aiSubs.forEach((f) => f(r));
+};
+async function pollAiRun() {
+  try {
+    const r = await fetch("/api/agent/match");
+    if (!r.ok) return;
+    const d: AiRun = await r.json();
+    setAiRun(d);
+    if (d.status === "running") setTimeout(pollAiRun, 6000);
+  } catch {}
+}
+/** Live view of the user's latest Devin match run. `start` kicks a new run. */
+export function useAiMatch(enabled: boolean) {
+  const [run, setRun] = useState(aiRun);
+  useEffect(() => {
+    aiSubs.add(setRun);
+    if (enabled && !aiLoaded) {
+      aiLoaded = true;
+      void pollAiRun();
+    }
+    return () => {
+      aiSubs.delete(setRun);
+    };
+  }, [enabled]);
+  const start = async () => {
+    setAiRun({ ...(aiRun as AgentMatch), status: "running", sessionId: "", url: "", ranAt: Date.now() });
+    try {
+      const r = await fetch("/api/agent/match", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        setAiRun(aiRun);
+        toast.error(d.error || "Could not start the match run");
+        return;
+      }
+      setAiRun(d);
+      setTimeout(pollAiRun, 6000);
+    } catch {
+      setAiRun(aiRun);
+      toast.error("Could not start the match run");
+    }
+  };
+  const matches: Record<string, { score: number; reason: string }> =
+    run.status === "done" && "matches" in run
+      ? Object.fromEntries((run.matches || []).map((m) => [m.id, { score: m.score, reason: m.reason }]))
+      : {};
+  return { run, matches, start };
 }

@@ -39,6 +39,8 @@ export type Resume = {
   uploadedAt: number;
   text: string;
   keywords: string[];
+  agentRun?: { sessionId: string; url: string; ranAt: number; status: "running" | "done" | "error" };
+  aiSummary?: string;
 };
 export type DiscoverFilters = {
   country: string;
@@ -61,10 +63,19 @@ export type JobsMeta = {
   manual: string[];
   excluded: string[];
 };
+export type AgentMatch = {
+  sessionId: string;
+  url: string;
+  ranAt: number;
+  status: "running" | "done" | "error";
+  matches?: { id: string; score: number; reason: string }[];
+  error?: string;
+};
 export type Profile = {
   keywords: string[];
   excluded: string[];
   resumes: Resume[];
   sourceRank: Record<string, number>;
   filters: Partial<DiscoverFilters>;
+  agentMatch?: AgentMatch;
 };

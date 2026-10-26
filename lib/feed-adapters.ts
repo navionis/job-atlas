@@ -759,10 +759,7 @@ export function feeds(): Feed[] {
               url: r.link,
               location: r.location,
               eligibility: r.location,
-              remote:
-                r.isRemote === true ||
-                /remote/i.test(r.workplaceType || "") ||
-                /^remote/i.test(r.location || ""),
+              remote: r.isRemote === true || /remote/i.test(r.workplaceType || "") || /^remote/i.test(r.location || ""),
               posted: r.date,
               tags: [r.department, r.workplaceType, r.salary].filter(Boolean),
             }),
