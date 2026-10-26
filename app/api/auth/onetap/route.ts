@@ -31,6 +31,10 @@ export const POST = withOrigin(async (request) => {
     if (!r.ok) return Response.json({ error: "Invalid credential" }, { status: 401 });
     const p = await r.json();
     if (p.aud !== clientId) return Response.json({ error: "Wrong audience" }, { status: 401 });
+    // Issuer parity with the OAuth callback — tokeninfo validates the
+    // signature server-side; checking iss anyway is free defense in depth.
+    if (p.iss !== "accounts.google.com" && p.iss !== "https://accounts.google.com")
+      return Response.json({ error: "Wrong issuer" }, { status: 401 });
     const email = String(p.email || "").toLowerCase();
     if (p.email_verified !== "true" || !email) return Response.json({ error: "Denied" }, { status: 403 });
     await ensureAdmin(email);

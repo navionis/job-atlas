@@ -358,6 +358,20 @@ export async function dbCreateEmailToken(hash: string, email: string, expiresAt:
     await db.insert(emailTokens).values({ hash, email, expiresAt: new Date(expiresAt) });
   } catch {}
 }
+/** Non-consuming validity check — the GET interstitial peeks; only POST spends. */
+export async function dbPeekEmailToken(hash: string): Promise<string | null> {
+  try {
+    const { db } = await conn();
+    const rows = await db
+      .select({ email: emailTokens.email, expiresAt: emailTokens.expiresAt })
+      .from(emailTokens)
+      .where(and(eq(emailTokens.hash, hash), isNull(emailTokens.usedAt)));
+    const r = rows[0];
+    return r && r.expiresAt.getTime() > Date.now() ? r.email : null;
+  } catch {
+    return null;
+  }
+}
 /** Atomic single-use consume — sets used_at iff the token is still unused. */
 export async function dbConsumeEmailToken(hash: string): Promise<string | null> {
   try {

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { dbConsumeEmailToken, dbCreateEmailToken, pgEnabled } from "./db";
+import { dbConsumeEmailToken, dbCreateEmailToken, dbPeekEmailToken, pgEnabled } from "./db";
 
 export const TOKEN_TTL = 10 * 60 * 1000;
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -39,6 +39,16 @@ export async function issueToken(email: string): Promise<string> {
     saveAll(all);
   }
   return token;
+}
+
+/** Validity check without spending the token — mail scanners GET links before
+ *  users click, so the interstitial must not consume. Only consumeToken spends. */
+export async function peekToken(token: string): Promise<string | null> {
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return null;
+  const h = hash(token);
+  if (pgEnabled()) return dbPeekEmailToken(h);
+  const r = loadAll()[h];
+  return r && !r.usedAt && r.expiresAt > Date.now() ? r.email : null;
 }
 
 /** Redeem `token` — returns the email iff it exists, is unused, and unexpired. Consumes on success. */

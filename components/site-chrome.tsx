@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { Sun, Moon, ArrowUp, LayoutDashboard, Compass, Rss, UserRound, ShieldCheck } from "lucide-react";
+import { Sun, Moon, ArrowUp, LayoutDashboard, Compass, Rss, UserRound, ShieldCheck, LogOut } from "lucide-react";
 import { AtlasMark } from "./atlas-mark";
 import { useSnapshot } from "../lib/live";
 import { EASE } from "./motion";
@@ -121,32 +121,56 @@ export function SiteHeader({ me, admin = false }: { me: Session | null; admin?: 
               )}
             </button>
             {menu && (
-              <div className="profile-menu">
-                <b>{me.name || me.email}</b>
-                <small>{me.email}</small>
-                <Link href="/profile" onClick={() => setMenu(false)}>
-                  Profile
-                </Link>
-                {admin && (
-                  <Link href="/admin" onClick={() => setMenu(false)}>
-                    Admin
+              <motion.div
+                className="profile-menu"
+                initial={{ opacity: 0, y: -5, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.16, ease: EASE }}
+              >
+                <div className="pm-head">
+                  <span className="pm-avatar">
+                    {me.picture ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={me.picture} alt="" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span>{(me.name || me.email || "?").slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </span>
+                  <div>
+                    <b>{me.name || me.email}</b>
+                    <small>{me.email}</small>
+                  </div>
+                </div>
+                <div className="pm-body">
+                  <Link href="/profile" className="pm-item" onClick={() => setMenu(false)}>
+                    <UserRound size={14} />
+                    Profile
                   </Link>
-                )}
-                <button
-                  type="button"
-                  className="menu-signout"
-                  onClick={() =>
-                    void fetch("/api/auth/logout", { method: "POST" }).then(() => {
-                      // Full reload — drops module-level caches holding the
-                      // signed-in user's statuses/meta before guest view.
-                      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-                      window.location.assign("/login");
-                    })
-                  }
-                >
-                  Sign out
-                </button>
-              </div>
+                  {admin && (
+                    <Link href="/admin" className="pm-item" onClick={() => setMenu(false)}>
+                      <ShieldCheck size={14} />
+                      Admin
+                    </Link>
+                  )}
+                </div>
+                <div className="pm-foot">
+                  <button
+                    type="button"
+                    className="pm-item pm-signout"
+                    onClick={() =>
+                      void fetch("/api/auth/logout", { method: "POST" }).then(() => {
+                        // Full reload — drops module-level caches holding the
+                        // signed-in user's statuses/meta before guest view.
+                        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                        window.location.assign("/login");
+                      })
+                    }
+                  >
+                    <LogOut size={14} />
+                    Sign out
+                  </button>
+                </div>
+              </motion.div>
             )}
           </div>
         ) : (
