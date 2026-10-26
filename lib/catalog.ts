@@ -342,6 +342,16 @@ export const catalog = [
     implemented: true,
   },
   {
+    id: "hashtagweb3",
+    name: "Hashtag Web3",
+    access: "Public JSON data endpoint",
+    limit: "No published quota; conservative refresh",
+    cadence: "6 hours (app policy)",
+    coverage: "Web3 listings aggregated from ATS boards · full snapshot",
+    url: "https://hashtagweb3.com/",
+    implemented: true,
+  },
+  {
     id: "solana",
     name: "Solana Jobs",
     access: "Public Getro collections API",

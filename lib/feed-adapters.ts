@@ -744,6 +744,31 @@ export function feeds(): Feed[] {
       map: coinacademyJobs,
     },
     {
+      id: "hashtagweb3",
+      provider: "hashtagweb3",
+      url: "https://hashtagweb3.com/data/jobs-runtime.json",
+      ttl: 6 * H,
+      map: (d) =>
+        (Array.isArray(d) ? d : [])
+          .filter((r: Row) => r.active !== false)
+          .map((r: Row) =>
+            job("hashtagweb3", {
+              id: r.id,
+              title: r.title,
+              company: r.company,
+              url: r.link,
+              location: r.location,
+              eligibility: r.location,
+              remote:
+                r.isRemote === true ||
+                /remote/i.test(r.workplaceType || "") ||
+                /^remote/i.test(r.location || ""),
+              posted: r.date,
+              tags: [r.department, r.workplaceType, r.salary].filter(Boolean),
+            }),
+          ),
+    },
+    {
       id: "hnhiring",
       provider: "hnhiring",
       url: "https://hnhiring.com/locations/remote",

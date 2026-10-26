@@ -33,6 +33,7 @@ const SOURCES = {
   findweb3: "findweb3.com",
   sailonchain: "sailonchain.com",
   hnhiring: "hnhiring.com",
+  hashtagweb3: "hashtagweb3.com",
 };
 
 const out = join(process.cwd(), "public", "favicons");

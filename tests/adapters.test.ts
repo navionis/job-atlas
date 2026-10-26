@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { feeds, retryDelay } from "../lib/feeds";
-test("all 26 adapters normalize a documented response shape", () => {
+test("all 27 adapters normalize a documented response shape", () => {
   Object.assign(process.env, {
     MUSE_API_KEY: "fixture",
     GREENHOUSE_BOARDS: "fixture",
@@ -141,9 +141,21 @@ test("all 26 adapters normalize a documented response shape", () => {
     cryptojobs: `<rss><channel><item><title>Engineer at Company</title><link>https://example.org/job/1</link><guid>https://example.org/job/1</guid><pubDate>Wed, 01 Oct 2026 10:00:00 GMT</pubDate><description><p><strong>Company:</strong> Company</p><p><strong>Location:</strong> Ethiopia</p><p>Role</p></description></item></channel></rss>`,
     jobsweb3: `<li class="job" data-key="j1"><h3 class="job__title"><a class="job__link" href="/jobs/engineer-1">Engineer</a></h3><span class="job__co"><span class="job__name">Company</span></span><span class="job__loc">Ethiopia</span><span class="job__age"><span>1h</span></span></li>`,
     coinacademy: `<table><tr><td>01 Oct. 2025</td><td><a href="https://onchainjobs.io/x">OnChain-Jobs</a></td><td>Company</td><td>Engineer</td><td>Full Time</td><td>Ethiopia</td><td><a href="https://example.org/job/1">Apply</a></td></tr></table>`,
+    hashtagweb3: [
+      {
+        id: "j1",
+        title: "Engineer",
+        company: "Company",
+        link: r.url,
+        date: "2026-10-01T00:00:00Z",
+        location: "Ethiopia",
+        department: "Engineering",
+        active: true,
+      },
+    ],
   };
   const adapters = feeds();
-  assert.equal(adapters.length, 26);
+  assert.equal(adapters.length, 27);
   const eligibilitySupplied = [
     "remotive",
     "cryptocurrencyjobs",
@@ -153,6 +165,7 @@ test("all 26 adapters normalize a documented response shape", () => {
     "hnhiring",
     "jobsweb3",
     "coinacademy",
+    "hashtagweb3",
   ];
   for (const f of adapters) {
     const normalized = f.map(fixture[f.provider]);
