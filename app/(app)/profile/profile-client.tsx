@@ -29,10 +29,14 @@ function KwAdd({
   onAdd,
   placeholder,
   disabled,
+  className = "kw-add",
+  label,
 }: {
   onAdd: (ks: string[]) => void;
   placeholder: string;
   disabled?: boolean;
+  className?: string;
+  label?: string;
 }) {
   const [v, setV] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +55,7 @@ function KwAdd({
     inputRef.current?.focus();
   };
   return (
-    <div className="kw-add">
+    <div className={className}>
       <input
         ref={inputRef}
         aria-label={placeholder}
@@ -63,7 +67,8 @@ function KwAdd({
         }}
       />
       <button className="ghost" onClick={go} disabled={disabled} aria-label="Add keyword">
-        <Plus size={12} />
+        <Plus size={label ? 13 : 12} />
+        {label}
       </button>
     </div>
   );
@@ -72,13 +77,11 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
   const [pf, setPf] = useState<ProfileData>(initial);
   const [busy, setBusy] = useState(false),
     [saving, setSaving] = useState(""),
-    [kw, setKw] = useState(""),
     [renaming, setRenaming] = useState(""),
     [aliasVal, setAliasVal] = useState(""),
     [deleting, setDeleting] = useState(""),
     [confirming, setConfirming] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const kwRef = useRef<HTMLInputElement>(null);
   const apply = (d: Partial<ProfileData>) => {
     setPf((p) => ({ ...p, ...d }));
     updateProfileMeta({ keywords: d.keywords ?? pf.keywords, sourceRank: d.sourceRank ?? pf.sourceRank });
@@ -165,20 +168,10 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
   };
   const setFilters = (patch: Partial<DiscoverFilters>) => put({ filters: { ...pf.filters, ...patch } }, "filters");
   const resetFilters = () => put({ filters: {} }, "filters");
-  const addKw = () => {
-    if (saving) return;
-    const ks = [
-      ...new Set(
-        kw
-          .split(/[,;]+/)
-          .map((x) => x.trim().toLowerCase())
-          .filter((x) => x && !pf.manual.includes(x)),
-      ),
-    ];
-    if (!ks.length) return;
-    put({ keywords: [...pf.manual, ...ks], excluded: pf.excluded.filter((x) => !ks.includes(x)) }, "kw:manual");
-    setKw("");
-    kwRef.current?.focus();
+  const addKw = (ks: string[]) => {
+    const fresh = ks.filter((k) => !pf.manual.includes(k));
+    if (fresh.length)
+      put({ keywords: [...pf.manual, ...fresh], excluded: pf.excluded.filter((x) => !fresh.includes(x)) }, "kw:manual");
   };
   const fmt = (n: number) =>
     n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
@@ -398,20 +391,13 @@ export default function ProfileClient({ me, initial }: { me: Session; initial: P
             ))}
             {pf.manual.length === 0 && <span className="pf-hint">None yet.</span>}
           </div>
-          <div className="kw-input">
-            <input
-              ref={kwRef}
-              placeholder="Add keywords — e.g. typescript, node.js"
-              value={kw}
-              onChange={(e) => setKw(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") addKw();
-              }}
-            />
-            <button className="ghost" onClick={addKw} disabled={!!saving}>
-              <Plus size={13} /> Add
-            </button>
-          </div>
+          <KwAdd
+            className="kw-input"
+            label="Add"
+            disabled={!!saving}
+            placeholder="Add keywords — e.g. typescript, node.js"
+            onAdd={addKw}
+          />
         </div>
       </div>
       <div className="pf-card" id="filters">

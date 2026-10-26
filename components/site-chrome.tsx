@@ -15,11 +15,8 @@ const LINKS: [string, string][] = [
   ["/sources", "Sources"],
   ["/profile", "Profile"],
 ];
-const GUEST_LINKS: [string, string][] = [
-  ["/", "Dashboard"],
-  ["/jobs", "Discover jobs"],
-  ["/sources", "Sources"],
-];
+// Guests get the public surface only — Profile swaps to a sign-in link.
+const GUEST_LINKS = LINKS.slice(0, 3);
 
 const MNAV = [
   { href: "/", label: "Home", Icon: LayoutDashboard },
@@ -27,12 +24,7 @@ const MNAV = [
   { href: "/sources", label: "Sources", Icon: Rss },
   { href: "/profile", label: "Profile", Icon: UserRound },
 ];
-const GUEST_MNAV = [
-  { href: "/", label: "Home", Icon: LayoutDashboard },
-  { href: "/jobs", label: "Discover", Icon: Compass },
-  { href: "/sources", label: "Sources", Icon: Rss },
-  { href: "/login", label: "Sign in", Icon: UserRound },
-];
+const GUEST_MNAV = [...MNAV.slice(0, 3), { href: "/login", label: "Sign in", Icon: UserRound }];
 
 export function SiteHeader({ me, admin = false }: { me: Session | null; admin?: boolean }) {
   const pathname = usePathname();

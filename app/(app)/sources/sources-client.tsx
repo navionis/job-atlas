@@ -5,24 +5,12 @@ import { FadeIn } from "../../../components/motion";
 import { catalog } from "../../../lib/catalog";
 import { Favicon } from "../../../components/favicon";
 import { useLiveData } from "../../../lib/live";
-import type { Snapshot, SourceStatus } from "../../../lib/types";
-
-const tone = (s: string) =>
-  s === "connected" ? "green" : s === "loading" ? "amber" : s === "stale" || s === "unavailable" ? "red" : "";
-const tier = (s: SourceStatus) =>
-  s.status === "connected"
-    ? 0
-    : s.status === "loading"
-      ? 1
-      : s.status === "stale" || s.status === "unavailable"
-        ? 2
-        : s.status === "disabled"
-          ? 3
-          : 4;
+import { statusTier, statusTone } from "../../../lib/source-status";
+import type { Snapshot } from "../../../lib/types";
 
 export default function SourcesClient({ initial, canAdmin }: { initial: Snapshot; canAdmin: boolean }) {
   const { data } = useLiveData(initial);
-  const rows = [...data.sources].sort((a, b) => tier(a) - tier(b) || b.count - a.count);
+  const rows = [...data.sources].sort((a, b) => statusTier(a.status) - statusTier(b.status) || b.count - a.count);
   const configured = rows.filter((s) => s.status !== "not configured");
   const live = configured.filter((s) => s.status === "connected").length;
   const research = catalog.filter((c) => !c.implemented);
@@ -55,7 +43,7 @@ export default function SourcesClient({ initial, canAdmin }: { initial: Snapshot
                     <Favicon source={s.id.split(":")[0]} size={15} /> {s.name}
                   </span>
                 )}
-                <span className={"pill" + (tone(s.status) ? " " + tone(s.status) : "")}>{s.status}</span>
+                <span className={"pill" + (statusTone(s.status) ? " " + statusTone(s.status) : "")}>{s.status}</span>
               </div>
               <div className="src-card-stats">
                 <span>

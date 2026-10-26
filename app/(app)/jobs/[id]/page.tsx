@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { snapshot, loadSnapshot } from "../../../../lib/feeds";
@@ -46,6 +47,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const me = await currentSession();
   const initial = await loadSnapshot(me?.email || "");
   const meta = await jobsMeta(me);
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const ldJob = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "JobPosting",
@@ -62,7 +64,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   }).replace(/</g, "\\u003c");
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJob }} />
+      <script nonce={nonce} type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJob }} />
       <Suspense fallback={null}>
         <JobClient id={id} initial={initial} meta={meta} />
       </Suspense>

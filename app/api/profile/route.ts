@@ -1,4 +1,4 @@
-import { getSession, unauthorized } from "../../../lib/auth";
+import { withSession, withUser } from "../../../lib/guard";
 import { getProfile, saveProfile, effectiveKeywords, extractKeywords } from "../../../lib/profiles";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,9 +29,7 @@ const normFilters = (v: any) => {
       if (k in v) out[k] = t === "b" ? !!v[k] : String(v[k] ?? "").slice(0, 120);
   return out;
 };
-export async function GET(request: Request) {
-  const me = getSession(request);
-  if (!me) return unauthorized();
+export const GET = withSession(async (me) => {
   const p = await getProfile(me.email);
   return Response.json(
     {
@@ -47,10 +45,8 @@ export async function GET(request: Request) {
     },
     { headers: { "Cache-Control": "no-store" } },
   );
-}
-export async function PUT(request: Request) {
-  const me = getSession(request);
-  if (!me) return unauthorized();
+});
+export const PUT = withUser(async (me, request) => {
   let body: any = {};
   try {
     body = await request.json();
@@ -84,4 +80,4 @@ export async function PUT(request: Request) {
     filters: p.filters || {},
     resumes: (p.resumes || []).map(({ text, ...r }) => ({ ...r, chars: text.length })),
   });
-}
+});

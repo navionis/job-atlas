@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { ArrowUpRight } from "lucide-react";
 import { FadeIn, EASE } from "../../components/motion";
 import { countries, groups } from "../../lib/geo";
-import { catalog } from "../../lib/catalog";
+import { catalog, sourceName } from "../../lib/catalog";
 import { useLiveData } from "../../lib/live";
 import { Favicon } from "../../components/favicon";
 import type { JobStatus, Snapshot } from "../../lib/types";
@@ -181,7 +181,7 @@ export default function DashboardClient({ initial }: { initial: Snapshot }) {
                 </small>
               </span>
               <span className="mini-meta">
-                <span className="src-name">{catalog.find((c) => c.id === j.source)?.name || j.source}</span>
+                <span className="src-name">{sourceName(j.source)}</span>
                 <small>{j.posted ? new Date(j.posted).toLocaleDateString() : "—"}</small>
               </span>
               <ArrowUpRight size={14} className="mini-arrow" />

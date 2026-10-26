@@ -14,7 +14,17 @@ import { useLiveData, useLiveProfileMeta, refresh, useServerClock } from "../../
 import { rankJobs, type JobMatch } from "../../../lib/match";
 import { PillTabs } from "../../../components/pill-tabs";
 import { JobHead, RemotePill, HitPills, JobActions } from "../../../components/job-parts";
-import type { Snapshot, JobsMeta } from "../../../lib/types";
+import type { Job, Snapshot, JobsMeta } from "../../../lib/types";
+
+// One window predicate for pre-filter, tab counts and the visible list: the
+// active pipeline tab decides which timestamp counts — Listed uses the post
+// date, a status tab uses the mark time, All accepts either. All three sites
+// must agree or the badges stop matching the cards (the "applied today" bug).
+const inWindow = (j: Job, markAt: number, cutoff: number, status: string) => {
+  if (!cutoff) return true;
+  const recentPost = Date.parse(j.posted) >= cutoff;
+  return status === "listed" ? recentPost : status === "all" ? recentPost || markAt >= cutoff : markAt >= cutoff;
+};
 
 const PAGE = 15;
 const STAGES = [
@@ -166,14 +176,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
             !terms.some((t) => `${j.title} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(t))
           )
             return false;
-          if (cutoff) {
-            // Recency by either measure: a job qualifies when it was posted in
-            // the window OR its pipeline status changed in the window — the
-            // Applied tab must find jobs applied today however old the post.
-            const recentPost = Date.parse(j.posted) >= cutoff;
-            const recentMark = (statuses[j.id]?.at || 0) >= cutoff;
-            if (!recentPost && !recentMark) return false;
-          }
+          if (!inWindow(j, statuses[j.id]?.at || 0, cutoff, "all")) return false;
           if (tab === "all") return true;
           if (source && j.source !== source) return false;
           if ((remote === "remote" && !j.remote) || (remote === "onsite" && j.remote)) return false;
@@ -197,11 +200,7 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
     for (const j of preStatus) {
       const se = statuses[j.id];
       const st = se?.status || "listed";
-      if (!(st in c)) continue;
-      if (cutoff) {
-        const ok = st === "listed" ? Date.parse(j.posted) >= cutoff : (se?.at || 0) >= cutoff;
-        if (!ok) continue;
-      }
+      if (!(st in c) || !inWindow(j, se?.at || 0, cutoff, st)) continue;
       c[st]++;
     }
     return c;
@@ -211,10 +210,8 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
       statusFilter === "all"
         ? preStatus
         : preStatus.filter((j) => (statuses[j.id]?.status || "listed") === statusFilter);
-    // The date window targets the active tab's own timestamp: Applied means
-    // *applied* in the window, Listed means *posted* in it, All means either.
-    if (cutoff && statusFilter === "listed") list = list.filter((j) => Date.parse(j.posted) >= cutoff);
-    else if (cutoff && statusFilter !== "all") list = list.filter((j) => (statuses[j.id]?.at || 0) >= cutoff);
+    // The date window targets the active tab's own timestamp — see inWindow.
+    if (cutoff) list = list.filter((j) => inWindow(j, statuses[j.id]?.at || 0, cutoff, statusFilter));
     if (statusFilter === "applied" || statusFilter === "cancelled" || statusFilter === "ignored")
       return [...list].sort((a, b) => (statuses[b.id]?.at || 0) - (statuses[a.id]?.at || 0));
     return list;

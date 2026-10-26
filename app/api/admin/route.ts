@@ -1,11 +1,8 @@
-import { getSession, unauthorized } from "../../../lib/auth";
-import { isAdminUser, setAdmin, listUsers } from "../../../lib/feeds";
+import { withAdmin } from "../../../lib/guard";
+import { setAdmin, listUsers } from "../../../lib/feeds";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function POST(request: Request) {
-  const me = getSession(request);
-  if (!me) return unauthorized();
-  if (!(await isAdminUser(me.email))) return Response.json({ error: "Admin only" }, { status: 403 });
+export const POST = withAdmin(async (_me, request) => {
   try {
     const { email, admin } = await request.json();
     if (typeof email !== "string" || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || typeof admin !== "boolean")
@@ -15,4 +12,4 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "Could not update admins" }, { status: 500 });
   }
-}
+});

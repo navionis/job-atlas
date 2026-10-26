@@ -1,25 +1,21 @@
 import { ensureAdmin } from "../../../../lib/feeds";
 import { sessionCookieHeader } from "../../../../lib/auth";
+import { withOrigin } from "../../../../lib/guard";
+import { clientIp, rateLimit } from "../../../../lib/rate-limit";
 import { originOf } from "../login/route";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Google One Tap / GIS credential sign-in. The browser prompt returns a signed
 // ID token; we verify it with Google and issue the same atlas_session cookie
-// the OAuth callback does.
-export async function POST(request: Request) {
+// the OAuth callback does. Same-origin only — a cookie can be *set* by a
+// cross-site POST despite SameSite=Lax (login CSRF).
+export const POST = withOrigin(async (request) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return Response.json({ error: "Not configured" }, { status: 400 });
-  // Same-site requests only — this endpoint sets a session cookie, and
-  // SameSite=Lax does not stop a cookie being *set* by a cross-site POST
-  // (login CSRF). Browsers always send Origin on cross-site POSTs.
-  const o = request.headers.get("origin");
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-  try {
-    if (o && new URL(o).host !== host) return Response.json({ error: "Bad origin" }, { status: 403 });
-  } catch {
-    return Response.json({ error: "Bad origin" }, { status: 403 });
-  }
+  // Rate-limit: every request costs a Google tokeninfo round-trip.
+  if (!rateLimit(`onetap:${clientIp(request)}`, 10, 60_000))
+    return Response.json({ error: "Too many attempts — wait a minute" }, { status: 429 });
   let credential = "";
   try {
     const body = await request.json();
@@ -48,4 +44,4 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "Sign-in failed" }, { status: 500 });
   }
-}
+});

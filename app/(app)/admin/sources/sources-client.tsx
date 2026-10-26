@@ -7,6 +7,7 @@ import { Favicon } from "../../../../components/favicon";
 import { Spinner } from "../../../../components/loader";
 import { Select } from "../../../../components/select";
 import { refresh, useLiveData } from "../../../../lib/live";
+import { statusTier, sourcesOf } from "../../../../lib/source-status";
 import type { Snapshot } from "../../../../lib/types";
 
 const RANKS = [5, 4, 3, 2, 1].map((n) => ({
@@ -57,19 +58,10 @@ export default function SourcesClient({
   };
   const configured = data.sources.filter((s) => s.status !== "not configured");
   const tier = (c: (typeof catalog)[number]) => {
-    const st = data.sources.filter((s) => s.id.split(":")[0] === c.id);
+    const st = sourcesOf(data.sources, c.id);
     const count = st.reduce((n, s) => n + s.count, 0);
-    const rank = st.some((s) => s.status === "connected")
-      ? 0
-      : st.some((s) => s.status === "loading")
-        ? 1
-        : st.some((s) => s.status === "stale" || s.status === "unavailable")
-          ? 2
-          : st.some((s) => s.status === "disabled")
-            ? 3
-            : c.implemented
-              ? 4
-              : 5;
+    // A provider ranks by its best feed — then by catalog implementation.
+    const rank = Math.min(...st.map((s) => statusTier(s.status)), c.implemented ? 4 : 5);
     return { rank, count };
   };
   const rows = [...catalog].sort((a, b) => {
@@ -113,62 +105,58 @@ export default function SourcesClient({
                   <td>{c.cadence}</td>
                   <td>
                     {c.implemented ? (
-                      data.sources
-                        .filter((s) => s.id.split(":")[0] === c.id)
-                        .map((s) => (
-                          <div key={s.id} className="src-status">
-                            <span className="pill">{s.status}</span>
-                            <small>
-                              {s.name} · {s.count} jobs
-                            </small>
-                            <small>{s.detail}</small>
-                            {s.nextFetch > 0 && (
-                              <small>Next eligible fetch: {new Date(s.nextFetch).toLocaleString()}</small>
-                            )}
-                          </div>
-                        ))
+                      sourcesOf(data.sources, c.id).map((s) => (
+                        <div key={s.id} className="src-status">
+                          <span className="pill">{s.status}</span>
+                          <small>
+                            {s.name} · {s.count} jobs
+                          </small>
+                          <small>{s.detail}</small>
+                          {s.nextFetch > 0 && (
+                            <small>Next eligible fetch: {new Date(s.nextFetch).toLocaleString()}</small>
+                          )}
+                        </div>
+                      ))
                     ) : (
                       <small>Research only</small>
                     )}
                   </td>
                   <td>
                     {c.implemented ? (
-                      data.sources
-                        .filter((s) => s.id.split(":")[0] === c.id)
-                        .map((s) => {
-                          const off = s.status === "disabled",
-                            nc = s.status === "not configured";
-                          return (
-                            <div key={s.id} className="src-manage">
-                              <Select
-                                compact
-                                value={String(rank[c.id] ?? 3)}
-                                disabled={!!saving || off || nc}
-                                onChange={(v) => setSourceRank(c.id, Number(v))}
-                                ariaLabel={`Rank for ${s.name}`}
-                                options={RANKS}
-                              />
-                              {!nc && (
-                                <button
-                                  className={"src-toggle" + (off ? " off" : "")}
-                                  disabled={busy.includes(s.id)}
-                                  onClick={() => toggle(s.id, !off)}
-                                  aria-label={off ? `Enable ${s.name}` : `Disable ${s.name}`}
-                                  title={off ? "Enable fetching" : "Disable fetching"}
-                                >
-                                  {busy.includes(s.id) ? (
-                                    <Spinner size={11} />
-                                  ) : off ? (
-                                    <Play size={11} />
-                                  ) : (
-                                    <Pause size={11} />
-                                  )}
-                                  {off ? "Enable" : "Disable"}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })
+                      sourcesOf(data.sources, c.id).map((s) => {
+                        const off = s.status === "disabled",
+                          nc = s.status === "not configured";
+                        return (
+                          <div key={s.id} className="src-manage">
+                            <Select
+                              compact
+                              value={String(rank[c.id] ?? 3)}
+                              disabled={!!saving || off || nc}
+                              onChange={(v) => setSourceRank(c.id, Number(v))}
+                              ariaLabel={`Rank for ${s.name}`}
+                              options={RANKS}
+                            />
+                            {!nc && (
+                              <button
+                                className={"src-toggle" + (off ? " off" : "")}
+                                disabled={busy.includes(s.id)}
+                                onClick={() => toggle(s.id, !off)}
+                                aria-label={off ? `Enable ${s.name}` : `Disable ${s.name}`}
+                                title={off ? "Enable fetching" : "Disable fetching"}
+                              >
+                                {busy.includes(s.id) ? (
+                                  <Spinner size={11} />
+                                ) : off ? (
+                                  <Play size={11} />
+                                ) : (
+                                  <Pause size={11} />
+                                )}
+                                {off ? "Enable" : "Disable"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
                     ) : (
                       <small>—</small>
                     )}

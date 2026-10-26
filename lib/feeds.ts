@@ -76,15 +76,16 @@ export async function setJobStatus(email: string, id: string, status: JobStatus)
     else await dbSetJobStatus(email, id, status, Date.now());
   } else await save();
 }
+const envAdmins = () =>
+  (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
 export async function isAdminUser(email: string): Promise<boolean> {
   await shared.hydrated;
   const em = email.toLowerCase();
   if (!em) return false;
-  const env = (process.env.ADMIN_EMAILS || "")
-    .split(",")
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-  if (env.includes(em)) return true;
+  if (envAdmins().includes(em)) return true;
   const a = shared.state.admins || [];
   return a.length === 0 || a.includes(em);
 }
@@ -110,12 +111,7 @@ export async function setAdmin(email: string, on: boolean) {
 }
 export async function listUsers(): Promise<{ email: string; admin: boolean; viaEnv: boolean; marked: number }[]> {
   await shared.hydrated;
-  const env = new Set(
-    (process.env.ADMIN_EMAILS || "")
-      .split(",")
-      .map((x) => x.trim().toLowerCase())
-      .filter(Boolean),
-  );
+  const env = new Set(envAdmins());
   const emails = new Set<string>([
     ...(shared.state.admins || []),
     ...Object.keys(shared.state.statuses || {}).filter((e) => e !== "*"),
@@ -369,12 +365,15 @@ async function collect(): Promise<Snapshot> {
     } else if (!refreshing) await refreshAll(enabled);
     // else: a cold-start refresh is already in flight — serve what's cached.
   }
+  // "Provider · board-slug" for compound ids (greenhouse:acme → "Greenhouse · acme").
+  const displayName = (f: Feed) =>
+    catalog.find((c) => c.id === f.provider)!.name + (f.id.includes(":") ? " · " + f.id.split(":")[1] : "");
   const sources: SourceStatus[] = configured.map((f) => {
     const e = shared.state.entries[f.id];
     if (disabled.has(f.id))
       return {
         id: f.id,
-        name: catalog.find((c) => c.id === f.provider)!.name + (f.id.includes(":") ? " · " + f.id.split(":")[1] : ""),
+        name: displayName(f),
         status: "disabled",
         count: e?.jobs.length || 0,
         fetchedAt: e?.fetched || 0,
@@ -383,7 +382,7 @@ async function collect(): Promise<Snapshot> {
       };
     return {
       id: f.id,
-      name: catalog.find((c) => c.id === f.provider)!.name + (f.id.includes(":") ? " · " + f.id.split(":")[1] : ""),
+      name: displayName(f),
       status: e.status,
       count: e.jobs.length,
       fetchedAt: e.fetched,

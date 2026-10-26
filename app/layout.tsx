@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { headers } from "next/headers";
 import { Suspense } from "react";
 import {
   Noto_Sans,
@@ -79,13 +80,15 @@ const ldSite = jsonLd([
     },
   },
 ]);
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning className={fonts}>
       <head>
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldSite }} />
+        <script nonce={nonce} type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldSite }} />
         <Script
           id="theme-init"
+          nonce={nonce}
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html:

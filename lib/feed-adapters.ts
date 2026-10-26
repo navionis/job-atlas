@@ -63,19 +63,21 @@ const list = (s: string | undefined) =>
 // Getro powers both getro.com's collections and network boards like
 // jobs.solana.com — same response shape, different collection id.
 // A board Referer/Origin keeps the WAF's POST scrutiny low.
-const getro = (collection: number, board = "https://jobs.jumpcrypto.com") => (page: number) => ({
-  url: `https://api.getro.com/api/v2/collections/${collection}/search/jobs`,
-  init: {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Origin: board,
-      Referer: board + "/",
+const getro =
+  (collection: number, board = "https://jobs.jumpcrypto.com") =>
+  (page: number) => ({
+    url: `https://api.getro.com/api/v2/collections/${collection}/search/jobs`,
+    init: {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Origin: board,
+        Referer: board + "/",
+      },
+      body: JSON.stringify({ hits_per_page: 100, page, filters: {} }),
     },
-    body: JSON.stringify({ hits_per_page: 100, page, filters: {} }),
-  },
-});
+  });
 const getroJobs =
   (source: string) =>
   (d: any): Job[] => {
@@ -92,6 +94,11 @@ const getroJobs =
       }),
     );
   };
+// A Getro-backed feed entry: first page inline + the paged request factory.
+const getroFeed = (id: string, collection: number, board?: string): Feed => {
+  const g = getro(collection, board);
+  return { id, provider: id, ...g(1), ttl: 6 * H, pages: 3, pageUrl: g, map: getroJobs(id) };
+};
 function web3careerJobs(html: string): Job[] {
   const postings: Row[] = [];
   for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
@@ -208,7 +215,7 @@ function sailonchainJobs(html: string): Job[] {
   return out;
 }
 // Feeds double-escape text nodes ("&amp;amp;") — decode twice so "&" survives.
-const unescapeXml = (s: string) => {
+const decodeEntities = (s: string) => {
   for (let i = 0; i < 2; i++)
     s = s
       .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
@@ -224,7 +231,7 @@ function rssItems(xml: string): Row[] {
   const items: Row[] = [];
   for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
     const pick = (tag: string) =>
-      unescapeXml(
+      decodeEntities(
         ((m[1].match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`)) || [])[1] || "").replace(
           /<!\[CDATA\[|\]\]>/g,
           "",
@@ -432,13 +439,8 @@ const HN_PLACEISH = /\b(remote|on-?site|hybrid|location|time\s?zones?|worldwide)
 const HN_URLISH = /^(https?:|\S+\.(com|io|dev|ai|co|fm|xyz|net|org|us|app|gg|so)\b)/i;
 // Comment heads are freeform — "|", "—", or "–" separated depending on month.
 const HN_SEP = /\s*[|—–]\s*/;
-// Algolia escapes HTML entities inside attribute values too, so decode before
-// any href/body parsing (&#x2F; is "/", &quot; is a quote, etc.).
-const decodeEntities = (s: string) =>
-  s
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&(quot|amp|lt|gt);/g, (m) => ({ "&quot;": '"', "&amp;": "&", "&lt;": "<", "&gt;": ">" })[m] || m);
+// Algolia escapes HTML entities inside attribute values too — decodeEntities
+// above covers them before any href/body parsing (&#x2F; is "/", &quot; a quote).
 // Shared parser for one "Who is hiring" comment body (HTML), whether it came
 // from hnhiring.com markup or the Algolia HN API.
 function hnCommentJob(body: string, id: string, posted: string | undefined): Job | null {
@@ -669,24 +671,8 @@ export function feeds(): Feed[] {
       html: true,
       map: web3careerJobs,
     },
-    {
-      id: "getro",
-      provider: "getro",
-      ...getro(20916)(1),
-      ttl: 6 * H,
-      pages: 3,
-      pageUrl: getro(20916),
-      map: getroJobs("getro"),
-    },
-    {
-      id: "solana",
-      provider: "solana",
-      ...getro(858, "https://jobs.solana.com")(1),
-      ttl: 6 * H,
-      pages: 3,
-      pageUrl: getro(858, "https://jobs.solana.com"),
-      map: getroJobs("solana"),
-    },
+    getroFeed("getro", 20916),
+    getroFeed("solana", 858, "https://jobs.solana.com"),
     {
       id: "raretalent",
       provider: "raretalent",

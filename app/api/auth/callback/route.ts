@@ -1,5 +1,5 @@
 import { ensureAdmin } from "../../../../lib/feeds";
-import { sessionCookieHeader } from "../../../../lib/auth";
+import { cookieValue, sessionCookieHeader } from "../../../../lib/auth";
 import { originOf } from "../login/route";
 
 function safeNext(v: string | null): string {
@@ -15,6 +15,13 @@ export async function GET(request: Request) {
     console.error("[auth] AUTH_SECRET is not set — refusing to issue sessions");
     return Response.redirect(origin + "/login?error=config");
   }
+  // Login-CSRF check: the state nonce must match the cookie /api/auth/login set.
+  const stateParam = url.searchParams.get("state") || "";
+  const sep = stateParam.indexOf(".");
+  const stateNonce = sep > 0 ? stateParam.slice(0, sep) : "";
+  const next = sep > 0 ? stateParam.slice(sep + 1) : "/";
+  if (!stateNonce || stateNonce !== cookieValue(request, "atlas_oauth"))
+    return Response.redirect(origin + "/login?error=state");
   const code = url.searchParams.get("code");
   if (!code) {
     console.error("[auth] callback without code:", url.search);
@@ -38,6 +45,13 @@ export async function GET(request: Request) {
     }
     const { id_token } = await t.json();
     const payload = JSON.parse(Buffer.from(String(id_token).split(".")[1], "base64url").toString());
+    // The token arrives from Google over server-side TLS in exchange for our
+    // secret, but verify audience/issuer/expiry anyway — defence in depth.
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const audOk = Array.isArray(payload.aud) ? payload.aud.includes(clientId) : payload.aud === clientId;
+    const issOk = payload.iss === "accounts.google.com" || payload.iss === "https://accounts.google.com";
+    if (!audOk || !issOk || Number(payload.exp) * 1000 < Date.now())
+      return Response.redirect(origin + "/login?error=denied");
     const email = String(payload.email || "").toLowerCase();
     if (!payload.email_verified || !email) return Response.redirect(origin + "/login?error=denied");
     await ensureAdmin(email);
@@ -46,13 +60,14 @@ export async function GET(request: Request) {
       origin.startsWith("https:"),
     );
     if (!cookie) return Response.redirect(origin + "/login?error=config");
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: origin + safeNext(url.searchParams.get("state")),
-        "Set-Cookie": cookie,
-      },
-    });
+    const headers = new Headers({ Location: origin + safeNext(next) });
+    headers.append("Set-Cookie", cookie);
+    // Single-use: burn the state cookie on the way out.
+    headers.append(
+      "Set-Cookie",
+      `atlas_oauth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${origin.startsWith("https:") ? "; Secure" : ""}`,
+    );
+    return new Response(null, { status: 302, headers });
   } catch (e) {
     console.error("[auth] callback failed:", e);
     return Response.redirect(origin + "/login?error=1");

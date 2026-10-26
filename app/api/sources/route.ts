@@ -1,11 +1,8 @@
-import { getSession, unauthorized } from "../../../lib/auth";
-import { setSourceDisabled, isAdminUser } from "../../../lib/feeds";
+import { withAdmin } from "../../../lib/guard";
+import { setSourceDisabled } from "../../../lib/feeds";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function POST(request: Request) {
-  const me = getSession(request);
-  if (!me) return unauthorized();
-  if (!(await isAdminUser(me.email))) return Response.json({ error: "Admin only" }, { status: 403 });
+export const POST = withAdmin(async (_me, request) => {
   try {
     const { id, disabled } = await request.json();
     if (typeof id !== "string" || !id || typeof disabled !== "boolean")
@@ -16,4 +13,4 @@ export async function POST(request: Request) {
     const msg = e instanceof Error && e.message === "Unknown source" ? "Unknown source" : "Could not update source";
     return Response.json({ error: msg }, { status: 400 });
   }
-}
+});
