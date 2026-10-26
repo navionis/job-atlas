@@ -35,8 +35,6 @@ export function withUser<C = Ctx>(handler: Handler<C>): Route<C> {
 }
 export function withAdmin<C = Ctx>(handler: Handler<C>): Route<C> {
   return withUser<C>(async (me, request, ctx) =>
-    (await isAdminUser(me.email))
-      ? handler(me, request, ctx)
-      : Response.json({ error: "Admin only" }, { status: 403 }),
+    (await isAdminUser(me.email)) ? handler(me, request, ctx) : Response.json({ error: "Admin only" }, { status: 403 }),
   );
 }

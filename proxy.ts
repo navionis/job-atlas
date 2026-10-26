@@ -79,8 +79,7 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.json({ error: "Bad origin" }, { status: 403 });
   let res: NextResponse;
   const cookie = req.cookies.get("atlas_session")?.value;
-  const authed =
-    !process.env.GOOGLE_CLIENT_ID || (!!cookie && (await valid(cookie, process.env.AUTH_SECRET || "")));
+  const authed = !process.env.GOOGLE_CLIENT_ID || (!!cookie && (await valid(cookie, process.env.AUTH_SECRET || "")));
   if (!authed && !isPublic(path)) {
     res = path.startsWith("/api/")
       ? NextResponse.json({ error: "Sign in required" }, { status: 401 })
