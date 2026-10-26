@@ -1,9 +1,14 @@
 import nodemailer from "nodemailer";
 import { TOKEN_TTL } from "./email-tokens";
 
-/** SMTP transport from env. SMTP_HOST unset → dev mode (link is logged, not sent). */
-const configured = () => !!process.env.SMTP_HOST;
-const transporter = () =>
+/** "Name <a@b.c>" or bare address → { email, name? } for providers that split them. */
+const sender = (from: string) => {
+  const m = from.match(/^(.*)<([^>]+)>/);
+  return m ? { email: m[2].trim(), name: m[1].trim() } : { email: from.trim() };
+};
+
+/** Transport order: Brevo HTTPS API → SMTP → dev console (links logged). */
+const smtp = () =>
   nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
@@ -21,16 +26,27 @@ export async function sendMagicLink(email: string, url: string) {
   <a href="${url}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:600">Sign in</a>
   <p style="color:#999;font-size:12px;margin:20px 0 0">If you didn't request this, you can ignore this email.<br>${url}</p>
 </div>`;
-  if (!configured()) {
-    console.log(`[mail] sign-in link for ${email}: ${url}`);
-    return { delivered: false };
+  const brevo = process.env.BREVO_API_KEY;
+  if (brevo) {
+    const from = sender(process.env.MAIL_FROM || "");
+    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": brevo, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender: { email: from.email, name: from.name || "Job Atlas" },
+        to: [{ email }],
+        subject,
+        textContent: text,
+        htmlContent: html,
+      }),
+    });
+    if (!r.ok) throw new Error(`brevo ${r.status}: ${await r.text()}`);
+    return { delivered: true };
   }
-  await transporter().sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: email,
-    subject,
-    text,
-    html,
-  });
-  return { delivered: true };
+  if (process.env.SMTP_HOST) {
+    await smtp().sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to: email, subject, text, html });
+    return { delivered: true };
+  }
+  console.log(`[mail] sign-in link for ${email}: ${url}`);
+  return { delivered: false };
 }
