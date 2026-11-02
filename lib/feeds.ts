@@ -40,7 +40,13 @@ function load(): StoreState {
     d.admins = Array.isArray(d.admins) ? d.admins.filter((x: any) => typeof x === "string") : [];
     return d;
   } catch (e: any) {
-    if (e.code !== "ENOENT") throw new Error("Cannot read feed state; restore it before fetching to preserve quotas.");
+    // A missing file is a clean boot. A corrupt one is not fatal — quarantine
+    // it and start empty rather than crashing every process that boots.
+    if (e.code === "ENOENT") return { entries: {}, attempts: {}, lifetime: {}, statuses: {}, disabled: [], admins: [] };
+    try {
+      renameSync(file, file + ".corrupt-" + Date.now());
+    } catch {}
+    console.error("[feeds] feeds.json was corrupt; moved aside and starting empty —", e.message || e);
     return { entries: {}, attempts: {}, lifetime: {}, statuses: {}, disabled: [], admins: [] };
   }
 }
@@ -50,12 +56,20 @@ const globalState = globalThis as typeof globalThis & {
 const shared = (globalState.atlas ??= { state: load() });
 shared.hydrated ??= (async () => {
   if (pgEnabled()) {
-    const s = await loadState();
-    if (s) {
-      shared.state = s;
-      shared.pg = true;
-    } else shared.pg = false;
-  } else shared.pg = false;
+    // Retry a few times — a deploy that races the DB coming up must not lock
+    // the whole process into file mode (which strands the persisted state).
+    for (let i = 0; i < 4; i++) {
+      const s = await loadState();
+      if (s) {
+        shared.state = s;
+        shared.pg = true;
+        return;
+      }
+      if (i < 3) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+    console.error("[feeds] Postgres unreachable at boot — falling back to file state");
+  }
+  shared.pg = false;
 })();
 function statusesFor(email: string) {
   const all = shared.state.statuses;
@@ -73,8 +87,8 @@ export async function setJobStatus(email: string, id: string, status: JobStatus)
   else mine[id] = { status, at: Date.now() };
   statusCache.delete(email);
   if (shared.pg) {
-    if (status === "listed") await dbDeleteJobStatus(email, id);
-    else await dbSetJobStatus(email, id, status, Date.now());
+    if (status === "listed") await pgOrFile(dbDeleteJobStatus(email, id));
+    else await pgOrFile(dbSetJobStatus(email, id, status, Date.now()));
   } else await save();
 }
 const envAdmins = () =>
@@ -96,7 +110,7 @@ export async function ensureAdmin(email: string) {
   const a = (shared.state.admins ??= []);
   if (a.length === 0 && email) {
     a.push(email.toLowerCase());
-    if (shared.pg) await dbSetAdmin(email.toLowerCase(), true);
+    if (shared.pg) await pgOrFile(dbSetAdmin(email.toLowerCase(), true));
     else await save();
   }
 }
@@ -107,7 +121,7 @@ export async function setAdmin(email: string, on: boolean) {
   const i = a.indexOf(em);
   if (on && i < 0) a.push(em);
   if (!on && i >= 0) a.splice(i, 1);
-  if (shared.pg) await dbSetAdmin(em, on);
+  if (shared.pg) await pgOrFile(dbSetAdmin(em, on));
   else await save();
 }
 export async function listUsers(): Promise<{ email: string; admin: boolean; viaEnv: boolean; marked: number }[]> {
@@ -135,16 +149,24 @@ export async function setSourceDisabled(id: string, disabled: boolean) {
   if (disabled && i < 0) list.push(id);
   if (!disabled && i >= 0) list.splice(i, 1);
   baseCache = null;
-  if (shared.pg) await dbSetFeedDisabled(id, disabled);
+  if (shared.pg) await pgOrFile(dbSetFeedDisabled(id, disabled));
   else await save();
+}
+// Safety net: if a pg write reports failure, the in-memory state still lands
+// on disk — a restart recovers marks/state from feeds.json instead of losing
+// them silently while the API already told the user "saved".
+async function saveFile() {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(file + ".tmp", JSON.stringify(shared.state));
+  renameSync(file + ".tmp", file);
 }
 async function save() {
   if (shared.pg) await saveState(shared.state);
-  else {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(file + ".tmp", JSON.stringify(shared.state));
-    renameSync(file + ".tmp", file);
-  }
+  else await saveFile();
+}
+/** Run a pg write; on reported failure persist the whole state to the file. */
+async function pgOrFile(op: Promise<boolean>) {
+  if (!(await op)) await saveFile();
 }
 export function retryDelay(value: string | null, now = Date.now()) {
   if (!value) return 15 * 60000;
@@ -197,9 +219,10 @@ async function persistFeed(f: Feed, scope: string) {
   if (shared.pg) {
     const e = shared.state.entries[f.id];
     if (!e) return;
-    const ops: Promise<void>[] = [dbSaveFeed(f.id, e)];
+    const ops: Promise<boolean>[] = [dbSaveFeed(f.id, e)];
     if (scope) ops.push(dbSaveAttempts(scope, shared.state.attempts[scope] || [], shared.state.lifetime[scope] || 0));
-    await Promise.all(ops);
+    const results = await Promise.all(ops);
+    if (results.some((ok) => !ok)) await saveFile();
   } else await save();
 }
 const jobSigs = new Map<string, string>();

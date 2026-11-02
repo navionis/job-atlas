@@ -42,10 +42,9 @@ export async function listProfileEmails(): Promise<string[]> {
 }
 export async function saveProfile(email: string, p: Profile) {
   const key = email.toLowerCase();
-  if (pgEnabled()) {
-    await dbSaveProfile(key, p);
-    return;
-  }
+  if (pgEnabled() && (await dbSaveProfile(key, p))) return;
+  // File store is the fallback on non-pg deploys AND on pg write failure —
+  // a dropped write must never make the UI claim "saved" while losing data.
   const all = loadAll();
   all[key] = p;
   saveAll(all);

@@ -238,6 +238,8 @@ export async function saveState(state: StoreState) {
   } catch {}
 }
 
+// Write ops return success — silently dropped writes are how "live data
+// cannot be restored" happens. Callers fall back to file persistence on false.
 export async function dbSetJobStatus(email: string, jobId: string, status: string, at: number) {
   try {
     const { db } = await conn();
@@ -249,13 +251,19 @@ export async function dbSetJobStatus(email: string, jobId: string, status: strin
         target: [jobStatusUser.email, jobStatusUser.jobId],
         set: { status: sql`excluded.status`, updated: sql`excluded.updated` },
       });
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbDeleteJobStatus(email: string, jobId: string) {
   try {
     const { db } = await conn();
     await db.delete(jobStatusUser).where(and(eq(jobStatusUser.email, email), eq(jobStatusUser.jobId, jobId)));
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbSaveFeed(id: string, e: Entry) {
   try {
@@ -280,7 +288,10 @@ export async function dbSaveFeed(id: string, e: Entry) {
           detail: sql`excluded.detail`,
         },
       });
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbSaveAttempts(scope: string, attempts: number[], lifetime: number) {
   try {
@@ -292,7 +303,10 @@ export async function dbSaveAttempts(scope: string, attempts: number[], lifetime
         target: feedAttempts.scope,
         set: { attempts: sql`excluded.attempts`, lifetime: sql`excluded.lifetime` },
       });
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbListJobStatuses(email: string): Promise<Record<string, StatusEntry> | null> {
   try {
@@ -316,14 +330,20 @@ export async function dbSetFeedDisabled(id: string, on: boolean) {
     const { db } = await conn();
     if (on) await db.insert(feedDisabled).values({ feedId: id }).onConflictDoNothing();
     else await db.delete(feedDisabled).where(eq(feedDisabled.feedId, id));
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbSetAdmin(email: string, on: boolean) {
   try {
     const { db } = await conn();
     if (on) await db.insert(admins).values({ email }).onConflictDoNothing();
     else await db.delete(admins).where(eq(admins.email, email));
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbListProfileEmails(): Promise<string[]> {
   try {
@@ -350,7 +370,10 @@ export async function dbSaveProfile(email: string, data: any) {
       .insert(profiles)
       .values({ email, data })
       .onConflictDoUpdate({ target: profiles.email, set: { data: sql`excluded.data` } });
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function dbCreateEmailToken(hash: string, email: string, expiresAt: number) {
   try {
