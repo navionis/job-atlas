@@ -20,10 +20,9 @@ import { Select } from "../../../components/select";
 import { EASE } from "../../../components/motion";
 import { countries, scopeMatches } from "../../../lib/geo";
 import { sourceName } from "../../../lib/catalog";
-import { useLiveData, useLiveProfileMeta, refresh, useAiMatch, useServerClock } from "../../../lib/live";
+import { useLiveData, useLiveProfileMeta, refresh, useServerClock } from "../../../lib/live";
 import { rankJobs, type JobMatch } from "../../../lib/match";
 import { PillTabs } from "../../../components/pill-tabs";
-import AiMatchControl from "../../../components/ai-match";
 import { JobHead, RemotePill, HitPills, JobActions } from "../../../components/job-parts";
 import type { Job, Snapshot, JobsMeta } from "../../../lib/types";
 
@@ -60,7 +59,6 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
   const router = useRouter();
   const { data, loading, error } = useLiveData(initial);
   const { sourceRank: srcRank } = useLiveProfileMeta(meta, !guest);
-  const ai = useAiMatch(!guest);
   const sp = useSearchParams();
   const f = meta.filters;
   const country = f.country || "",
@@ -448,7 +446,6 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
           {tab !== "all" && (
             <span className="pill green">{mode === "eligibility" ? "Candidate scope" : "Location matching"}</span>
           )}
-          {!guest && <AiMatchControl run={ai.run} onStart={ai.start} />}
         </div>
         {tab !== "all" && chips.length > 0 && (
           <div className="active-filters">
@@ -609,11 +606,6 @@ export default function JobsClient({ initial, meta }: { initial: Snapshot; meta:
                       <MapPin size={12} /> {j.location}
                     </p>
                     <div className="tags">
-                      {ai.matches[j.id] ? (
-                        <span className="pill green" title={ai.matches[j.id].reason}>
-                          AI {ai.matches[j.id].score}
-                        </span>
-                      ) : null}
                       <RemotePill j={j} />
                       {(srcRank[j.source] ?? 3) >= 4 && <span className="pill">Priority feed</span>}
                       <HitPills hits={m?.hits} max={6} />
